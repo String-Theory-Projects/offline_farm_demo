@@ -37,7 +37,7 @@
 
 <!-- Sync Button (Fixed Position) -->
 <div class="sync-button-container">
-    <button class="sync-button" id="sync-button" onclick="syncActivities()" title="Sync pending activities to server">
+    <button class="sync-button" id="sync-button" data-action="sync-activities" title="Sync pending activities to server">
         🔄 Sync
         <span class="pending-count" id="sync-pending-count" style="display: none;">0</span>
     </button>
@@ -309,8 +309,10 @@
         }
     }
     
-    // Make syncActivities available globally for auto-sync
+    // Attach functions to window for global access
     window.syncActivities = syncActivities;
+    window.loadSyncedActivities = loadSyncedActivities;
+    window.loadPendingActivities = loadPendingActivities;
     
     // Update sync button based on online status
     function updateSyncButtonState() {

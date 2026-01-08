@@ -10,7 +10,7 @@
 
 <div class="card">
     <!-- Primary Action: Scan Button -->
-    <button type="button" class="btn btn-primary" onclick="startScanning()" id="scan-btn" style="margin-bottom: 1rem;">
+    <button type="button" class="btn btn-primary" id="scan-btn" data-action="start-scanning" style="margin-bottom: 1rem;">
         📷 Open Camera Scanner
     </button>
     
@@ -22,7 +22,7 @@
         <input type="text" id="tree-id-input" placeholder="e.g., TREE-001" autofocus>
     </div>
     
-    <button type="button" class="btn" onclick="lookupTree()" id="lookup-btn">Lookup Tree</button>
+    <button type="button" class="btn" id="lookup-btn" data-action="lookup-tree">Lookup Tree</button>
     
     <!-- Camera Scanner -->
     <div id="scanner-container" style="display: none; margin-top: 1.5rem;">
@@ -32,7 +32,7 @@
         </div>
         <canvas id="canvas" style="display: none;"></canvas>
         <div style="margin-top: 1rem;">
-            <button type="button" class="btn btn-danger" onclick="stopScanning()">Stop Scanning</button>
+            <button type="button" class="btn btn-danger" data-action="stop-scanning">Stop Scanning</button>
         </div>
         <p style="text-align: center; color: #666; margin-top: 0.75rem; font-size: 0.9rem;">Point camera at QR code</p>
     </div>
@@ -89,7 +89,7 @@
     <p style="color: #155724; margin-bottom: 1rem;">Saved locally. Sync to server from dashboard.</p>
     <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
         <a href="{% url 'dashboard' %}" class="btn btn-small" style="flex: 1; min-width: 120px;">📋 Dashboard</a>
-        <button type="button" class="btn btn-secondary btn-small" onclick="resetForm()" style="flex: 1; min-width: 120px;">➕ Another</button>
+        <button type="button" class="btn btn-secondary btn-small" data-action="reset-form" style="flex: 1; min-width: 120px;">➕ Another</button>
     </div>
 </div>
 {% endblock %}
@@ -97,28 +97,39 @@
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script>
-    const STORAGE_KEY = 'farm_activities_pending';
-    let currentTreeId = null;
-    let currentFarmName = null;
-    let scanning = false;
-    let stream = null;
-    let video = null;
-    let canvas = null;
-    let context = null;
+    // Use namespace to avoid conflicts when scripts are re-executed
+    if (typeof window.scanPage === 'undefined') {
+        window.scanPage = {};
+    }
+    
+    // Store variables in namespace
+    window.scanPage.STORAGE_KEY = 'farm_activities_pending';
+    window.scanPage.currentTreeId = null;
+    window.scanPage.currentFarmName = null;
+    window.scanPage.scanning = false;
+    window.scanPage.stream = null;
+    window.scanPage.video = null;
+    window.scanPage.canvas = null;
+    window.scanPage.context = null;
     
     // Set today's date as default
-    document.getElementById('activity-date').valueAsDate = new Date();
+    const dateInput = document.getElementById('activity-date');
+    if (dateInput) {
+        dateInput.valueAsDate = new Date();
+    }
     
     // Initialize camera elements
     function initCamera() {
-        video = document.getElementById('video');
-        canvas = document.getElementById('canvas');
-        context = canvas.getContext('2d');
+        window.scanPage.video = document.getElementById('video');
+        window.scanPage.canvas = document.getElementById('canvas');
+        if (window.scanPage.canvas) {
+            window.scanPage.context = window.scanPage.canvas.getContext('2d');
+        }
     }
     
     // Start QR code scanning
     async function startScanning() {
-        if (scanning) return;
+        if (window.scanPage.scanning) return;
         
         try {
             initCamera();
@@ -129,7 +140,7 @@
             document.getElementById('scan-btn').style.display = 'none';
             
             // Request camera access
-            stream = await navigator.mediaDevices.getUserMedia({
+            window.scanPage.stream = await navigator.mediaDevices.getUserMedia({
                 video: { 
                     facingMode: 'environment',
                     width: { ideal: 1280 },
@@ -137,11 +148,11 @@
                 }
             });
             
-            video.srcObject = stream;
-            video.setAttribute('playsinline', true);
+            window.scanPage.video.srcObject = window.scanPage.stream;
+            window.scanPage.video.setAttribute('playsinline', true);
             
             document.getElementById('scanner-container').style.display = 'block';
-            scanning = true;
+            window.scanPage.scanning = true;
             
             // Scroll to scanner
             document.getElementById('scanner-container').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -160,15 +171,15 @@
     
     // Stop scanning
     function stopScanning() {
-        scanning = false;
+        window.scanPage.scanning = false;
         
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-            stream = null;
+        if (window.scanPage.stream) {
+            window.scanPage.stream.getTracks().forEach(track => track.stop());
+            window.scanPage.stream = null;
         }
         
-        if (video) {
-            video.srcObject = null;
+        if (window.scanPage.video) {
+            window.scanPage.video.srcObject = null;
         }
         
         document.getElementById('scanner-container').style.display = 'none';
@@ -179,14 +190,14 @@
     
     // QR code scanning loop
     function scanQRCode() {
-        if (!scanning || !video || !canvas) return;
+        if (!window.scanPage.scanning || !window.scanPage.video || !window.scanPage.canvas) return;
         
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
-            canvas.height = video.videoHeight;
-            canvas.width = video.videoWidth;
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        if (window.scanPage.video.readyState === window.scanPage.video.HAVE_ENOUGH_DATA) {
+            window.scanPage.canvas.height = window.scanPage.video.videoHeight;
+            window.scanPage.canvas.width = window.scanPage.video.videoWidth;
+            window.scanPage.context.drawImage(window.scanPage.video, 0, 0, window.scanPage.canvas.width, window.scanPage.canvas.height);
             
-            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+            const imageData = window.scanPage.context.getImageData(0, 0, window.scanPage.canvas.width, window.scanPage.canvas.height);
             const code = jsQR(imageData.data, imageData.width, imageData.height);
             
             if (code) {
@@ -198,7 +209,7 @@
             }
         }
         
-        if (scanning) {
+        if (window.scanPage.scanning) {
             requestAnimationFrame(scanQRCode);
         }
     }
@@ -231,8 +242,8 @@
             if (cached) {
                 try {
                     const data = JSON.parse(cached);
-                    currentTreeId = data.tree_id;
-                    currentFarmName = data.farm_name;
+                    window.scanPage.currentTreeId = data.tree_id;
+                    window.scanPage.currentFarmName = data.farm_name;
                     
                     document.getElementById('tree-display').textContent = `${data.tree_id} - ${data.farm_name}`;
                     document.getElementById('tree-info').style.display = 'block';
@@ -287,8 +298,8 @@
             // Cache the response
             localStorage.setItem(cacheKey, JSON.stringify(data));
             
-            currentTreeId = data.tree_id;
-            currentFarmName = data.farm_name;
+            window.scanPage.currentTreeId = data.tree_id;
+            window.scanPage.currentFarmName = data.farm_name;
             
             document.getElementById('tree-display').textContent = `${data.tree_id} - ${data.farm_name}`;
             document.getElementById('tree-info').style.display = 'block';
@@ -344,8 +355,8 @@
         
         // Create activity object
         const activity = {
-            tree_id: currentTreeId,
-            farm_name: currentFarmName,
+            tree_id: window.scanPage.currentTreeId,
+            farm_name: window.scanPage.currentFarmName,
             activity_type: activityType,
             custom_type: activityType === 'other' ? customType : '',
             date: date,
@@ -355,9 +366,9 @@
         };
         
         // Save to localStorage
-        const pending = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        const pending = JSON.parse(localStorage.getItem(window.scanPage.STORAGE_KEY) || '[]');
         pending.push(activity);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(pending));
+        localStorage.setItem(window.scanPage.STORAGE_KEY, JSON.stringify(pending));
         
         // Show success message
         document.getElementById('activity-form').style.display = 'none';
@@ -372,9 +383,10 @@
         document.getElementById('activity-form').style.display = 'none';
         document.getElementById('success-message').style.display = 'none';
         document.getElementById('activity-form-element').reset();
-        document.getElementById('activity-date').valueAsDate = new Date();
-        currentTreeId = null;
-        currentFarmName = null;
+        const dateInput = document.getElementById('activity-date');
+        if (dateInput) dateInput.valueAsDate = new Date();
+        window.scanPage.currentTreeId = null;
+        window.scanPage.currentFarmName = null;
         document.getElementById('tree-id-input').focus();
     }
     
@@ -383,12 +395,18 @@
         stopScanning();
     });
     
+    // Attach functions to window for global access
+    window.startScanning = startScanning;
+    window.stopScanning = stopScanning;
+    window.lookupTree = lookupTree;
+    window.resetForm = resetForm;
+    
     // Initialize scan page
     function initializeScanPage() {
         // Allow Enter key to trigger lookup
         const treeInput = document.getElementById('tree-id-input');
         if (treeInput) {
-            // Remove existing listeners
+            // Remove existing listeners by cloning
             const newInput = treeInput.cloneNode(true);
             treeInput.parentNode.replaceChild(newInput, treeInput);
             
@@ -398,6 +416,12 @@
                 }
             });
         }
+        
+        // Re-attach functions to window (in case they were cleared)
+        window.startScanning = startScanning;
+        window.stopScanning = stopScanning;
+        window.lookupTree = lookupTree;
+        window.resetForm = resetForm;
     }
     
     // Initialize on page load
