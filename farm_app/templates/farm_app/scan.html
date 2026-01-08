@@ -137,10 +137,37 @@
             return;
         }
         
-        // Check if jsQR is loaded
+        // Check if jsQR is loaded, wait for it if needed
         if (typeof jsQR === 'undefined') {
-            alert('QR scanner not loaded. Please check your connection and refresh the page.');
-            return;
+            // Try to load jsQR if not already loading
+            if (!window.jsQRLoading) {
+                window.jsQRLoading = true;
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+                script.onload = () => {
+                    window.jsQRLoading = false;
+                    // Retry scanning after library loads
+                    if (typeof startScanning === 'function') {
+                        startScanning();
+                    }
+                };
+                script.onerror = () => {
+                    window.jsQRLoading = false;
+                    alert('Failed to load QR scanner library. Please check your connection and refresh the page.');
+                };
+                document.head.appendChild(script);
+                return; // Wait for script to load
+            } else {
+                // Already loading, wait a bit
+                setTimeout(() => {
+                    if (typeof jsQR !== 'undefined' && typeof startScanning === 'function') {
+                        startScanning();
+                    } else {
+                        alert('QR scanner library is still loading. Please wait a moment and try again.');
+                    }
+                }, 1000);
+                return;
+            }
         }
         
         try {
@@ -246,9 +273,27 @@
                 
                 // Check if jsQR is available
                 if (typeof jsQR === 'undefined') {
-                    console.error('jsQR library not loaded');
-                    stopScanning();
-                    return;
+                    // Try to load jsQR if not available
+                    if (!window.jsQRLoading) {
+                        console.error('jsQR library not loaded, attempting to load...');
+                        window.jsQRLoading = true;
+                        const script = document.createElement('script');
+                        script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+                        script.onload = () => {
+                            window.jsQRLoading = false;
+                            // Continue scanning after library loads
+                            if (window.scanPage.scanning) {
+                                scanQRCode();
+                            }
+                        };
+                        script.onerror = () => {
+                            window.jsQRLoading = false;
+                            console.error('Failed to load jsQR library');
+                            stopScanning();
+                        };
+                        document.head.appendChild(script);
+                    }
+                    return; // Wait for library to load
                 }
                 
                 // Detect QR code

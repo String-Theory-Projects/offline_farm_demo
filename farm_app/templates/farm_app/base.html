@@ -498,6 +498,25 @@
     
     {% block extra_js %}{% endblock %}
     
+    <!-- Load jsQR library globally so it's available for all pages -->
+    <script>
+        // Load jsQR library if not already loaded
+        if (typeof jsQR === 'undefined' && !window.jsQRLoading) {
+            window.jsQRLoading = true;
+            const jsQRScript = document.createElement('script');
+            jsQRScript.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+            jsQRScript.onload = () => {
+                window.jsQRLoading = false;
+                console.log('jsQR library loaded');
+            };
+            jsQRScript.onerror = () => {
+                window.jsQRLoading = false;
+                console.error('Failed to load jsQR library');
+            };
+            document.head.appendChild(jsQRScript);
+        }
+    </script>
+    
     <script>
         // Offline detection and UI
         function updateOnlineStatus() {
@@ -744,29 +763,63 @@
                     
                     const pageScripts = doc.querySelectorAll('script:not([src])');
                     
-                    // Only load scripts if this page hasn't been loaded before
-                    if (!window.loadedPages.has(url) && pageScripts.length > 0) {
-                        pageScripts.forEach((oldScript) => {
-                            try {
-                                let scriptContent = oldScript.textContent;
-                                if (scriptContent.trim()) {
-                                    // Replace const/let with var to allow re-execution if needed
-                                    scriptContent = scriptContent
-                                        .replace(/\bconst\s+/g, 'var ')
-                                        .replace(/\blet\s+/g, 'var ');
-                                    
+                    // Load external scripts first (like jsQR), then inline scripts
+                    const externalScripts = doc.querySelectorAll('script[src]');
+                    const inlineScripts = doc.querySelectorAll('script:not([src])');
+                    
+                    // Load external scripts first (only if not already loaded globally)
+                    const externalScriptPromises = [];
+                    externalScripts.forEach((oldScript) => {
+                        const src = oldScript.getAttribute('src');
+                        if (src) {
+                            // Check if script is already loaded
+                            const existingScript = document.querySelector(`script[src="${src}"]`);
+                            if (!existingScript) {
+                                const promise = new Promise((resolve, reject) => {
                                     const newScript = document.createElement('script');
+                                    newScript.src = src;
                                     newScript.setAttribute('data-page-url', url);
                                     newScript.setAttribute('data-page-script', 'true');
-                                    newScript.textContent = scriptContent;
-                                    document.body.appendChild(newScript);
-                                }
-                            } catch (err) {
-                                console.error('Error executing page script:', err);
+                                    newScript.onload = () => resolve();
+                                    newScript.onerror = () => reject(new Error(`Failed to load ${src}`));
+                                    document.head.appendChild(newScript);
+                                });
+                                externalScriptPromises.push(promise);
                             }
-                        });
-                        window.loadedPages.add(url);
-                    }
+                        }
+                    });
+                    
+                    // Wait for external scripts to load, then load inline scripts
+                    Promise.allSettled(externalScriptPromises).then(() => {
+                        // Only load inline scripts if this page hasn't been loaded before
+                        if (!window.loadedPages.has(url) && inlineScripts.length > 0) {
+                            inlineScripts.forEach((oldScript) => {
+                                try {
+                                    let scriptContent = oldScript.textContent;
+                                    if (scriptContent.trim()) {
+                                        // Replace const/let with var to allow re-execution if needed
+                                        scriptContent = scriptContent
+                                            .replace(/\bconst\s+/g, 'var ')
+                                            .replace(/\blet\s+/g, 'var ');
+                                        
+                                        const newScript = document.createElement('script');
+                                        newScript.setAttribute('data-page-url', url);
+                                        newScript.setAttribute('data-page-script', 'true');
+                                        newScript.textContent = scriptContent;
+                                        document.body.appendChild(newScript);
+                                    }
+                                } catch (err) {
+                                    console.error('Error executing page script:', err);
+                                }
+                            });
+                            window.loadedPages.add(url);
+                        }
+                        
+                        // Trigger page initialization after scripts are loaded
+                        setTimeout(() => {
+                            window.dispatchEvent(new CustomEvent('pageLoaded', { detail: { url } }));
+                        }, 50);
+                    });
                     
                     // Trigger page initialization after a brief delay to ensure scripts are executed
                     setTimeout(() => {
