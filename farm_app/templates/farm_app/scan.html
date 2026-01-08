@@ -403,7 +403,18 @@
     }
     
     // Save activity function (fully client-side, no network requests)
+    // Track if save is in progress to prevent duplicate saves
+    if (!window.scanPage.isSaving) {
+        window.scanPage.isSaving = false;
+    }
+    
     function saveActivity() {
+        // Prevent duplicate saves
+        if (window.scanPage.isSaving) {
+            console.log('Save already in progress, ignoring duplicate call');
+            return;
+        }
+        
         const activityType = document.getElementById('activity-type')?.value;
         const customType = document.getElementById('custom-type')?.value || '';
         const date = document.getElementById('activity-date')?.value;
@@ -425,30 +436,59 @@
             return;
         }
         
-        // Create activity object
-        const activity = {
-            tree_id: window.scanPage.currentTreeId,
-            farm_name: window.scanPage.currentFarmName,
-            activity_type: activityType,
-            custom_type: activityType === 'other' ? customType : '',
-            date: date,
-            quantity: quantity,
-            notes: notes,
-            timestamp: new Date().toISOString()
-        };
+        // Set saving flag
+        window.scanPage.isSaving = true;
         
-        // Save to localStorage (fully client-side, no network)
-        const pending = JSON.parse(localStorage.getItem(window.scanPage.STORAGE_KEY) || '[]');
-        pending.push(activity);
-        localStorage.setItem(window.scanPage.STORAGE_KEY, JSON.stringify(pending));
-        
-        // Show success message
-        const activityForm = document.getElementById('activity-form');
-        const successMessage = document.getElementById('success-message');
-        if (activityForm) activityForm.style.display = 'none';
-        if (successMessage) {
-            successMessage.style.display = 'block';
-            successMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        try {
+            // Create activity object with unique timestamp to prevent exact duplicates
+            const activity = {
+                tree_id: window.scanPage.currentTreeId,
+                farm_name: window.scanPage.currentFarmName,
+                activity_type: activityType,
+                custom_type: activityType === 'other' ? customType : '',
+                date: date,
+                quantity: quantity,
+                notes: notes,
+                timestamp: new Date().toISOString()
+            };
+            
+            // Save to localStorage (fully client-side, no network)
+            const pending = JSON.parse(localStorage.getItem(window.scanPage.STORAGE_KEY) || '[]');
+            
+            // Check for duplicate (same tree, type, date, and timestamp within 1 second)
+            const isDuplicate = pending.some(p => 
+                p.tree_id === activity.tree_id &&
+                p.activity_type === activity.activity_type &&
+                p.date === activity.date &&
+                p.custom_type === activity.custom_type &&
+                Math.abs(new Date(p.timestamp) - new Date(activity.timestamp)) < 1000
+            );
+            
+            if (isDuplicate) {
+                console.log('Duplicate activity detected, not saving');
+                window.scanPage.isSaving = false;
+                return;
+            }
+            
+            pending.push(activity);
+            localStorage.setItem(window.scanPage.STORAGE_KEY, JSON.stringify(pending));
+            
+            // Show success message
+            const activityForm = document.getElementById('activity-form');
+            const successMessage = document.getElementById('success-message');
+            if (activityForm) activityForm.style.display = 'none';
+            if (successMessage) {
+                successMessage.style.display = 'block';
+                successMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        } catch (error) {
+            console.error('Error saving activity:', error);
+            alert('Error saving activity. Please try again.');
+        } finally {
+            // Reset saving flag after a short delay to prevent rapid duplicate clicks
+            setTimeout(() => {
+                window.scanPage.isSaving = false;
+            }, 500);
         }
     }
     
@@ -469,9 +509,18 @@
             const newForm = form.cloneNode(true);
             form.parentNode.replaceChild(newForm, form);
             
+            // Only handle submit if triggered by Enter key, not button click
             newForm.addEventListener('submit', function(e) {
                 e.preventDefault();
-                saveActivity();
+                e.stopPropagation();
+                // Check if submit was triggered by button click (button has data-action)
+                const activeElement = document.activeElement;
+                if (!activeElement || activeElement.getAttribute('data-action') !== 'save-activity') {
+                    // Submit was likely from Enter key, call saveActivity
+                    if (typeof saveActivity === 'function') {
+                        saveActivity();
+                    }
+                }
             });
         }
         

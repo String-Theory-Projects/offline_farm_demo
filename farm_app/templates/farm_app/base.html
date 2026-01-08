@@ -694,8 +694,19 @@
                 updateActiveNavState(url);
                 
                 // Try to get from cache first (works offline)
-                const cache = await caches.open('farm-management-v3');
+                const cache = await caches.open('farm-management-v4');
                 let response = await cache.match(url);
+                
+                // Try multiple cache matching strategies for Safari compatibility
+                if (!response) {
+                    response = await cache.match(url.pathname);
+                }
+                if (!response && !url.pathname.endsWith('/')) {
+                    response = await cache.match(url.pathname + '/');
+                }
+                if (!response && url.pathname.endsWith('/') && url.pathname !== '/') {
+                    response = await cache.match(url.pathname.slice(0, -1));
+                }
                 
                 // If not in cache and online, fetch from network
                 if (!response && navigator.onLine) {
@@ -851,12 +862,18 @@
         });
         
         // Handle form submissions via event delegation
+        // Note: This is a fallback - the button click handler should handle most cases
         document.addEventListener('submit', function(e) {
             const form = e.target;
             if (form.id === 'activity-form-element') {
                 e.preventDefault();
-                if (typeof saveActivity === 'function') {
-                    saveActivity();
+                e.stopPropagation(); // Prevent event from bubbling
+                // Only call if not triggered by button click (button click already handled)
+                const activeElement = document.activeElement;
+                if (activeElement && activeElement.getAttribute('data-action') !== 'save-activity') {
+                    if (typeof saveActivity === 'function') {
+                        saveActivity();
+                    }
                 }
             }
         });

@@ -20,7 +20,18 @@ self.addEventListener('install', (event) => {
                 return cache.addAll([
                     '/',
                     '/scan/',
-                ]).then(() => {
+                ]).then(async () => {
+                    // Cache pages with alternative keys for Safari compatibility
+                    const homePage = await cache.match('/');
+                    const scanPage = await cache.match('/scan/');
+                    
+                    if (homePage) {
+                        await cache.put('/scan/', homePage.clone()); // Fallback
+                    }
+                    if (scanPage) {
+                        await cache.put('/scan', scanPage.clone()); // Without trailing slash
+                    }
+                    
                     // Try to cache external resources, but don't fail if they're unavailable
                     return Promise.allSettled(
                         urlsToCache.slice(2).map(url => 
@@ -81,9 +92,12 @@ self.addEventListener('fetch', (event) => {
 
     // Special handling for navigation requests (CRITICAL for offline, especially Safari)
     // Safari requires explicit handling of navigation requests
+    // Check if this is a navigation request - Safari can be tricky here
+    const acceptHeader = event.request.headers.get('accept') || '';
     const isNavigation = event.request.mode === 'navigate' || 
                         event.request.destination === 'document' ||
-                        (event.request.headers.get('accept') && event.request.headers.get('accept').includes('text/html'));
+                        acceptHeader.includes('text/html') ||
+                        (event.request.method === 'GET' && !event.request.url.includes('.') && !event.request.url.includes('/api/') && !event.request.url.includes('/static/'));
     
     if (isNavigation && event.request.method === 'GET') {
         event.respondWith(
@@ -110,22 +124,42 @@ self.addEventListener('fetch', (event) => {
                         cachedResponse = await caches.match(url.pathname.slice(0, -1));
                     }
                     
-                    // Strategy 5: Create new request with just the URL (Safari compatibility)
+                    // Strategy 5: Match by full URL href
+                    if (!cachedResponse) {
+                        cachedResponse = await caches.match(url.href);
+                    }
+                    
+                    // Strategy 6: Create new request with just the URL (Safari compatibility)
                     if (!cachedResponse) {
                         const simpleRequest = new Request(url.href, {
                             method: 'GET',
-                            headers: event.request.headers
+                            headers: { 'Accept': 'text/html' }
                         });
                         cachedResponse = await caches.match(simpleRequest);
                     }
                     
+                    // Strategy 7: Try matching without query string (Safari sometimes adds query params)
+                    if (!cachedResponse && url.search) {
+                        const urlWithoutQuery = url.origin + url.pathname;
+                        cachedResponse = await caches.match(urlWithoutQuery) || 
+                                        await caches.match(urlWithoutQuery + '/');
+                    }
+                    
                     if (cachedResponse) {
                         console.log('Service Worker: Serving navigation from cache:', url.pathname);
-                        // Ensure response is valid for Safari
+                        // Safari requires a fresh Response object with proper headers
+                        const responseHeaders = new Headers(cachedResponse.headers);
+                        // Ensure Content-Type is set correctly for Safari
+                        if (!responseHeaders.has('Content-Type')) {
+                            responseHeaders.set('Content-Type', 'text/html; charset=utf-8');
+                        }
+                        // Safari needs proper status
+                        const status = cachedResponse.status || 200;
+                        
                         return new Response(cachedResponse.body, {
-                            status: cachedResponse.status,
-                            statusText: cachedResponse.statusText,
-                            headers: cachedResponse.headers
+                            status: status,
+                            statusText: cachedResponse.statusText || 'OK',
+                            headers: responseHeaders
                         });
                     }
                     
@@ -137,12 +171,16 @@ self.addEventListener('fetch', (event) => {
                                 const responseToCache = response.clone();
                                 const cache = await caches.open(CACHE_NAME);
                                 
-                                // Cache multiple ways for better matching
+                                // Cache multiple ways for better matching (Safari compatibility)
                                 await cache.put(event.request, responseToCache.clone());
                                 await cache.put(url.pathname, responseToCache.clone());
-                                if (!url.pathname.endsWith('/')) {
+                                if (!url.pathname.endsWith('/') && url.pathname !== '/') {
                                     await cache.put(url.pathname + '/', responseToCache.clone());
+                                } else if (url.pathname.endsWith('/') && url.pathname !== '/') {
+                                    await cache.put(url.pathname.slice(0, -1), responseToCache.clone());
                                 }
+                                // Also cache by full URL for Safari
+                                await cache.put(url.href, responseToCache.clone());
                                 
                                 console.log('Service Worker: Cached navigation:', url.pathname);
                                 return response;
@@ -152,17 +190,31 @@ self.addEventListener('fetch', (event) => {
                         }
                     }
                     
-                    // Offline - try to return any cached page
-                    const fallback = await caches.match('/') || 
-                                   await caches.match('/scan/') ||
-                                   await caches.match('/dashboard/');
+                    // Offline - try to return any cached page (Safari fallback strategy)
+                    let fallback = null;
+                    
+                    // Try to match the specific page first
+                    if (url.pathname === '/scan/' || url.pathname === '/scan') {
+                        fallback = await caches.match('/scan/') || await caches.match('/scan');
+                    } else if (url.pathname === '/' || url.pathname === '') {
+                        fallback = await caches.match('/');
+                    } else {
+                        // Try dashboard or any other page
+                        fallback = await caches.match('/') || 
+                                  await caches.match('/scan/') ||
+                                  await caches.match('/dashboard/');
+                    }
                     
                     if (fallback) {
                         console.log('Service Worker: Returning fallback page for:', url.pathname);
+                        const responseHeaders = new Headers(fallback.headers);
+                        if (!responseHeaders.has('Content-Type')) {
+                            responseHeaders.set('Content-Type', 'text/html; charset=utf-8');
+                        }
                         return new Response(fallback.body, {
-                            status: fallback.status,
-                            statusText: fallback.statusText,
-                            headers: fallback.headers
+                            status: 200, // Always use 200 for Safari
+                            statusText: 'OK',
+                            headers: responseHeaders
                         });
                     }
                     
@@ -179,14 +231,32 @@ self.addEventListener('fetch', (event) => {
                     );
                 } catch (error) {
                     console.error('Service Worker: Navigation error:', error);
-                    // Return a valid HTML response for Safari
-                    return new Response(
-                        '<!DOCTYPE html><html><head><title>Offline</title></head><body><h1>Offline</h1></body></html>',
-                        {
-                            headers: { 'Content-Type': 'text/html; charset=utf-8' },
-                            status: 200
-                        }
-                    );
+                    // Return a valid HTML response for Safari with proper structure
+                    const offlineHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline</title>
+</head>
+<body>
+    <h1>Offline</h1>
+    <p>This page is not available offline. Please check your connection.</p>
+    <script>
+        // Try to redirect to home if available
+        if (window.location.pathname !== '/') {
+            window.location.href = '/';
+        }
+    </script>
+</body>
+</html>`;
+                    return new Response(offlineHtml, {
+                        headers: { 
+                            'Content-Type': 'text/html; charset=utf-8',
+                            'Cache-Control': 'no-cache'
+                        },
+                        status: 200
+                    });
                 }
             })()
         );
