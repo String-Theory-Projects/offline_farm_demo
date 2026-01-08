@@ -2,9 +2,9 @@
 
 A mobile-first web application that enables field workers to record farm activities (fertilizer application, pruning, harvesting) using QR code identification, with full offline capability and manual synchronization.
 
-![Farm Management System Mockup](farm_app/mockup.png)
-
-*Mobile-optimized interface for offline field data capture*
+<div align="center">
+  <img src="farm_app/mockup.png" alt="Offline Farm Management Mobile App Interface" width="40%">
+</div>
 
 ## Solution Overview
 
