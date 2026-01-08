@@ -1,4 +1,4 @@
-const CACHE_NAME = 'farm-management-v3';
+const CACHE_NAME = 'farm-management-v4';
 const urlsToCache = [
     // Main pages
     '/',
@@ -79,40 +79,71 @@ self.addEventListener('fetch', (event) => {
         return; // Let browser handle other cross-origin requests
     }
 
-    // Special handling for navigation requests (CRITICAL for offline)
-    if (event.request.mode === 'navigate' || 
-        (event.request.destination === 'document' && event.request.method === 'GET')) {
+    // Special handling for navigation requests (CRITICAL for offline, especially Safari)
+    // Safari requires explicit handling of navigation requests
+    const isNavigation = event.request.mode === 'navigate' || 
+                        event.request.destination === 'document' ||
+                        (event.request.headers.get('accept') && event.request.headers.get('accept').includes('text/html'));
+    
+    if (isNavigation && event.request.method === 'GET') {
         event.respondWith(
             (async () => {
                 try {
-                    // Try exact match first
-                    let cachedResponse = await caches.match(event.request);
+                    // Try multiple cache matching strategies for Safari compatibility
+                    let cachedResponse = null;
                     
-                    // If not found, try matching by URL pathname
+                    // Strategy 1: Exact request match
+                    cachedResponse = await caches.match(event.request);
+                    
+                    // Strategy 2: Match by URL pathname
                     if (!cachedResponse) {
                         cachedResponse = await caches.match(url.pathname);
                     }
                     
-                    // If still not found, try with trailing slash
+                    // Strategy 3: Match with trailing slash
                     if (!cachedResponse && !url.pathname.endsWith('/')) {
                         cachedResponse = await caches.match(url.pathname + '/');
                     }
                     
+                    // Strategy 4: Match without trailing slash
+                    if (!cachedResponse && url.pathname.endsWith('/') && url.pathname !== '/') {
+                        cachedResponse = await caches.match(url.pathname.slice(0, -1));
+                    }
+                    
+                    // Strategy 5: Create new request with just the URL (Safari compatibility)
+                    if (!cachedResponse) {
+                        const simpleRequest = new Request(url.href, {
+                            method: 'GET',
+                            headers: event.request.headers
+                        });
+                        cachedResponse = await caches.match(simpleRequest);
+                    }
+                    
                     if (cachedResponse) {
                         console.log('Service Worker: Serving navigation from cache:', url.pathname);
-                        return cachedResponse;
+                        // Ensure response is valid for Safari
+                        return new Response(cachedResponse.body, {
+                            status: cachedResponse.status,
+                            statusText: cachedResponse.statusText,
+                            headers: cachedResponse.headers
+                        });
                     }
                     
                     // If not cached and online, fetch and cache
                     if (navigator.onLine) {
                         try {
-                            const response = await fetch(event.request);
+                            const response = await fetch(event.request.clone());
                             if (response.ok) {
                                 const responseToCache = response.clone();
                                 const cache = await caches.open(CACHE_NAME);
-                                await cache.put(event.request, responseToCache);
-                                // Also cache by pathname for easier matching
-                                await cache.put(url.pathname, responseToCache);
+                                
+                                // Cache multiple ways for better matching
+                                await cache.put(event.request, responseToCache.clone());
+                                await cache.put(url.pathname, responseToCache.clone());
+                                if (!url.pathname.endsWith('/')) {
+                                    await cache.put(url.pathname + '/', responseToCache.clone());
+                                }
+                                
                                 console.log('Service Worker: Cached navigation:', url.pathname);
                                 return response;
                             }
@@ -121,26 +152,41 @@ self.addEventListener('fetch', (event) => {
                         }
                     }
                     
-                    // Offline - try to return any cached page or fallback
+                    // Offline - try to return any cached page
                     const fallback = await caches.match('/') || 
-                                   await caches.match('/scan/');
+                                   await caches.match('/scan/') ||
+                                   await caches.match('/dashboard/');
                     
                     if (fallback) {
                         console.log('Service Worker: Returning fallback page for:', url.pathname);
-                        return fallback;
+                        return new Response(fallback.body, {
+                            status: fallback.status,
+                            statusText: fallback.statusText,
+                            headers: fallback.headers
+                        });
                     }
                     
                     // Last resort: return basic offline page
                     return new Response(
-                        '<!DOCTYPE html><html><head><title>Offline</title></head><body><h1>Offline</h1><p>This page is not available offline.</p></body></html>',
+                        '<!DOCTYPE html><html><head><title>Offline</title><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head><body><h1>Offline</h1><p>This page is not available offline.</p></body></html>',
                         {
-                            headers: { 'Content-Type': 'text/html' },
-                            status: 503
+                            headers: { 
+                                'Content-Type': 'text/html; charset=utf-8',
+                                'Cache-Control': 'no-cache'
+                            },
+                            status: 200 // Use 200 instead of 503 for Safari
                         }
                     );
                 } catch (error) {
                     console.error('Service Worker: Navigation error:', error);
-                    return new Response('Offline', { status: 503 });
+                    // Return a valid HTML response for Safari
+                    return new Response(
+                        '<!DOCTYPE html><html><head><title>Offline</title></head><body><h1>Offline</h1></body></html>',
+                        {
+                            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+                            status: 200
+                        }
+                    );
                 }
             })()
         );
@@ -171,12 +217,13 @@ self.addEventListener('fetch', (event) => {
                         // Cache pages, API responses, and static assets
                         const shouldCache = 
                             event.request.destination === 'document' || // HTML pages
-                            event.request.destination === 'script' ||   // JavaScript
+                            event.request.destination === 'script' ||   // JavaScript (including jsQR)
                             event.request.destination === 'style' ||    // CSS
                             event.request.destination === 'image' ||    // Images
                             event.request.url.includes('/api/') ||      // API endpoints
                             event.request.url.includes('/static/') ||   // Static files
-                            isJsQR;                                     // jsQR library
+                            isJsQR ||                                   // jsQR library from CDN
+                            event.request.url.includes('jsdelivr.net'); // All jsdelivr CDN resources
 
                         if (shouldCache) {
                             caches.open(CACHE_NAME)

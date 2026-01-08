@@ -49,7 +49,7 @@
         <form id="activity-form-element">
             <div class="form-group">
                 <label for="activity-type">Activity Type *</label>
-                <select id="activity-type" required onchange="toggleCustomType()">
+                <select id="activity-type" required data-action="toggle-custom-type">
                     <option value="">Select activity type</option>
                     <option value="fertilizer">🌱 Fertilizer Application</option>
                     <option value="pruning">✂️ Pruning</option>
@@ -78,7 +78,7 @@
                 <textarea id="notes" placeholder="Additional notes about this activity"></textarea>
             </div>
             
-            <button type="submit" class="btn btn-primary">💾 Save Activity</button>
+            <button type="button" class="btn btn-primary" data-action="save-activity">💾 Save Activity</button>
         </form>
     </div>
 </div>
@@ -127,45 +127,79 @@
         }
     }
     
-    // Start QR code scanning
+    // Start QR code scanning (simplified and more compatible)
     async function startScanning() {
         if (window.scanPage.scanning) return;
+        
+        // Check if camera API is available
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            alert('Camera not supported on this device. Please enter tree ID manually.');
+            return;
+        }
+        
+        // Check if jsQR is loaded
+        if (typeof jsQR === 'undefined') {
+            alert('QR scanner not loaded. Please check your connection and refresh the page.');
+            return;
+        }
         
         try {
             initCamera();
             
-            // Hide manual entry
-            document.getElementById('tree-id-input').parentElement.style.display = 'none';
-            document.getElementById('lookup-btn').style.display = 'none';
-            document.getElementById('scan-btn').style.display = 'none';
+            if (!window.scanPage.video || !window.scanPage.canvas) {
+                alert('Camera elements not found. Please refresh the page.');
+                return;
+            }
             
-            // Request camera access
+            // Hide manual entry
+            const treeInputParent = document.getElementById('tree-id-input')?.parentElement;
+            const lookupBtn = document.getElementById('lookup-btn');
+            const scanBtn = document.getElementById('scan-btn');
+            
+            if (treeInputParent) treeInputParent.style.display = 'none';
+            if (lookupBtn) lookupBtn.style.display = 'none';
+            if (scanBtn) scanBtn.style.display = 'none';
+            
+            // Request camera access (simplified constraints for better compatibility)
             window.scanPage.stream = await navigator.mediaDevices.getUserMedia({
                 video: { 
-                    facingMode: 'environment',
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
+                    facingMode: 'environment' // Prefer back camera
                 }
             });
             
             window.scanPage.video.srcObject = window.scanPage.stream;
-            window.scanPage.video.setAttribute('playsinline', true);
+            window.scanPage.video.setAttribute('playsinline', 'true');
+            window.scanPage.video.setAttribute('webkit-playsinline', 'true'); // iOS Safari
             
-            document.getElementById('scanner-container').style.display = 'block';
+            const scannerContainer = document.getElementById('scanner-container');
+            if (scannerContainer) {
+                scannerContainer.style.display = 'block';
+                scannerContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            
             window.scanPage.scanning = true;
-            
-            // Scroll to scanner
-            document.getElementById('scanner-container').scrollIntoView({ behavior: 'smooth', block: 'center' });
             
             // Start scanning loop
             scanQRCode();
         } catch (error) {
-            alert('Unable to access camera. Please check permissions or enter tree ID manually.');
             console.error('Camera error:', error);
+            let errorMsg = 'Unable to access camera. ';
+            if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+                errorMsg += 'Please allow camera access in your browser settings.';
+            } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+                errorMsg += 'No camera found on this device.';
+            } else {
+                errorMsg += 'Please check permissions or enter tree ID manually.';
+            }
+            alert(errorMsg);
+            
             // Show manual entry again
-            document.getElementById('tree-id-input').parentElement.style.display = 'block';
-            document.getElementById('lookup-btn').style.display = 'block';
-            document.getElementById('scan-btn').style.display = 'block';
+            const treeInputParent = document.getElementById('tree-id-input')?.parentElement;
+            const lookupBtn = document.getElementById('lookup-btn');
+            const scanBtn = document.getElementById('scan-btn');
+            if (treeInputParent) treeInputParent.style.display = 'block';
+            if (lookupBtn) lookupBtn.style.display = 'block';
+            if (scanBtn) scanBtn.style.display = 'block';
         }
     }
     
@@ -188,27 +222,62 @@
         document.getElementById('scan-btn').style.display = 'block';
     }
     
-    // QR code scanning loop
+    // QR code scanning loop (simplified and more robust)
     function scanQRCode() {
-        if (!window.scanPage.scanning || !window.scanPage.video || !window.scanPage.canvas) return;
-        
-        if (window.scanPage.video.readyState === window.scanPage.video.HAVE_ENOUGH_DATA) {
-            window.scanPage.canvas.height = window.scanPage.video.videoHeight;
-            window.scanPage.canvas.width = window.scanPage.video.videoWidth;
-            window.scanPage.context.drawImage(window.scanPage.video, 0, 0, window.scanPage.canvas.width, window.scanPage.canvas.height);
-            
-            const imageData = window.scanPage.context.getImageData(0, 0, window.scanPage.canvas.width, window.scanPage.canvas.height);
-            const code = jsQR(imageData.data, imageData.width, imageData.height);
-            
-            if (code) {
-                // QR code detected!
-                const treeId = code.data.trim();
-                document.getElementById('tree-id-input').value = treeId;
-                stopScanning();
-                lookupTree();
-            }
+        if (!window.scanPage.scanning || !window.scanPage.video || !window.scanPage.canvas || !window.scanPage.context) {
+            return;
         }
         
+        try {
+            if (window.scanPage.video.readyState === window.scanPage.video.HAVE_ENOUGH_DATA) {
+                // Set canvas size to match video
+                const video = window.scanPage.video;
+                const canvas = window.scanPage.canvas;
+                const context = window.scanPage.context;
+                
+                canvas.height = video.videoHeight || video.clientHeight;
+                canvas.width = video.videoWidth || video.clientWidth;
+                
+                // Draw video frame to canvas
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Get image data
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                
+                // Check if jsQR is available
+                if (typeof jsQR === 'undefined') {
+                    console.error('jsQR library not loaded');
+                    stopScanning();
+                    return;
+                }
+                
+                // Detect QR code
+                const code = jsQR(imageData.data, imageData.width, imageData.height);
+                
+                if (code && code.data) {
+                    // QR code detected!
+                    const treeId = code.data.trim();
+                    const treeInput = document.getElementById('tree-id-input');
+                    if (treeInput) {
+                        treeInput.value = treeId;
+                        stopScanning();
+                        // Small delay to ensure UI is updated
+                        setTimeout(() => {
+                            if (typeof lookupTree === 'function') {
+                                lookupTree();
+                            }
+                        }, 100);
+                    }
+                    return; // Stop scanning
+                }
+            }
+        } catch (error) {
+            console.error('QR scanning error:', error);
+            stopScanning();
+            return;
+        }
+        
+        // Continue scanning if still active
         if (window.scanPage.scanning) {
             requestAnimationFrame(scanQRCode);
         }
@@ -333,15 +402,13 @@
         }
     }
     
-    // Handle form submission
-    document.getElementById('activity-form-element').addEventListener('submit', function(e) {
-        e.preventDefault();
-        
-        const activityType = document.getElementById('activity-type').value;
-        const customType = document.getElementById('custom-type').value;
-        const date = document.getElementById('activity-date').value;
-        const quantity = document.getElementById('quantity').value;
-        const notes = document.getElementById('notes').value;
+    // Save activity function (fully client-side, no network requests)
+    function saveActivity() {
+        const activityType = document.getElementById('activity-type')?.value;
+        const customType = document.getElementById('custom-type')?.value || '';
+        const date = document.getElementById('activity-date')?.value;
+        const quantity = document.getElementById('quantity')?.value || '';
+        const notes = document.getElementById('notes')?.value || '';
         
         if (!activityType) {
             alert('Please select an activity type');
@@ -350,6 +417,11 @@
         
         if (activityType === 'other' && !customType.trim()) {
             alert('Please enter a custom activity type');
+            return;
+        }
+        
+        if (!window.scanPage.currentTreeId) {
+            alert('Please lookup a tree first');
             return;
         }
         
@@ -365,16 +437,52 @@
             timestamp: new Date().toISOString()
         };
         
-        // Save to localStorage
+        // Save to localStorage (fully client-side, no network)
         const pending = JSON.parse(localStorage.getItem(window.scanPage.STORAGE_KEY) || '[]');
         pending.push(activity);
         localStorage.setItem(window.scanPage.STORAGE_KEY, JSON.stringify(pending));
         
         // Show success message
-        document.getElementById('activity-form').style.display = 'none';
-        document.getElementById('success-message').style.display = 'block';
-        document.getElementById('success-message').scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
+        const activityForm = document.getElementById('activity-form');
+        const successMessage = document.getElementById('success-message');
+        if (activityForm) activityForm.style.display = 'none';
+        if (successMessage) {
+            successMessage.style.display = 'block';
+            successMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
+    
+    // Toggle custom type visibility
+    function toggleCustomType() {
+        const activityType = document.getElementById('activity-type')?.value;
+        const customGroup = document.getElementById('custom-type-group');
+        if (customGroup) {
+            customGroup.style.display = activityType === 'other' ? 'block' : 'none';
+        }
+    }
+    
+    // Initialize form handlers (use event delegation in base.html, but also set up here for initial load)
+    function initializeFormHandlers() {
+        const form = document.getElementById('activity-form-element');
+        if (form) {
+            // Remove existing listener if any
+            const newForm = form.cloneNode(true);
+            form.parentNode.replaceChild(newForm, form);
+            
+            newForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                saveActivity();
+            });
+        }
+        
+        const activityTypeSelect = document.getElementById('activity-type');
+        if (activityTypeSelect) {
+            const newSelect = activityTypeSelect.cloneNode(true);
+            activityTypeSelect.parentNode.replaceChild(newSelect, activityTypeSelect);
+            
+            newSelect.addEventListener('change', toggleCustomType);
+        }
+    }
     
     function resetForm() {
         stopScanning();
@@ -400,6 +508,8 @@
     window.stopScanning = stopScanning;
     window.lookupTree = lookupTree;
     window.resetForm = resetForm;
+    window.saveActivity = saveActivity;
+    window.toggleCustomType = toggleCustomType;
     
     // Initialize scan page
     function initializeScanPage() {
@@ -412,16 +522,23 @@
             
             newInput.addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
-                    lookupTree();
+                    if (typeof lookupTree === 'function') {
+                        lookupTree();
+                    }
                 }
             });
         }
+        
+        // Initialize form handlers
+        initializeFormHandlers();
         
         // Re-attach functions to window (in case they were cleared)
         window.startScanning = startScanning;
         window.stopScanning = stopScanning;
         window.lookupTree = lookupTree;
         window.resetForm = resetForm;
+        window.saveActivity = saveActivity;
+        window.toggleCustomType = toggleCustomType;
     }
     
     // Initialize on page load

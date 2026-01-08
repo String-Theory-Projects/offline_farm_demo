@@ -600,7 +600,7 @@
                     try {
                         const response = await fetch(page, { cache: 'no-cache' });
                         if (response.ok) {
-                            const cache = await caches.open('farm-management-v3');
+                            const cache = await caches.open('farm-management-v4');
                             await cache.put(page, response.clone());
                             console.log('Pre-cached page:', page);
                         }
@@ -614,7 +614,7 @@
                     try {
                         const response = await fetch(asset, { cache: 'no-cache' });
                         if (response.ok) {
-                            const cache = await caches.open('farm-management-v3');
+                            const cache = await caches.open('farm-management-v4');
                             await cache.put(asset, response.clone());
                             console.log('Pre-cached asset:', asset);
                         }
@@ -816,7 +816,7 @@
             initializeClientSideNavigation();
         }
         
-        // Event delegation for all data-action buttons (works across page navigations)
+        // Event delegation for all data-action buttons and form submissions (works across page navigations)
         document.addEventListener('click', function(e) {
             const target = e.target.closest('[data-action]');
             if (!target) return;
@@ -840,6 +840,34 @@
                 case 'sync-activities':
                     if (typeof syncActivities === 'function') syncActivities();
                     break;
+                case 'save-activity':
+                    e.preventDefault();
+                    if (typeof saveActivity === 'function') saveActivity();
+                    break;
+                case 'toggle-custom-type':
+                    if (typeof toggleCustomType === 'function') toggleCustomType();
+                    break;
+            }
+        });
+        
+        // Handle form submissions via event delegation
+        document.addEventListener('submit', function(e) {
+            const form = e.target;
+            if (form.id === 'activity-form-element') {
+                e.preventDefault();
+                if (typeof saveActivity === 'function') {
+                    saveActivity();
+                }
+            }
+        });
+        
+        // Handle select changes via event delegation
+        document.addEventListener('change', function(e) {
+            const target = e.target;
+            if (target.id === 'activity-type') {
+                if (typeof toggleCustomType === 'function') {
+                    toggleCustomType();
+                }
             }
         });
     </script>
