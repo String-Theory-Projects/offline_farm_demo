@@ -106,3 +106,17 @@ def get_synced_activities(request):
         })
     return JsonResponse({'activities': activities_data})
 
+
+@require_http_methods(["GET"])
+def get_all_trees(request):
+    """Get all trees as JSON for offline caching"""
+    trees = Tree.objects.select_related('farm').all()
+    trees_data = []
+    for tree in trees:
+        trees_data.append({
+            'tree_id': tree.tree_id,
+            'farm_name': tree.farm.name,
+            'farm_id': tree.farm.id,
+        })
+    return JsonResponse({'trees': trees_data})
+

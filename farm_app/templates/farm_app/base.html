@@ -623,7 +623,30 @@
                     }
                 }
                 
-                console.log('All pages and assets pre-cached for offline access');
+                // Pre-cache ALL trees for offline lookup
+                try {
+                    const treesResponse = await fetch('/api/all-trees/', { cache: 'no-cache' });
+                    if (treesResponse.ok) {
+                        const treesData = await treesResponse.json();
+                        const trees = treesData.trees || [];
+                        
+                        // Cache each tree in localStorage
+                        trees.forEach(tree => {
+                            const cacheKey = `tree_${tree.tree_id}`;
+                            localStorage.setItem(cacheKey, JSON.stringify({
+                                tree_id: tree.tree_id,
+                                farm_name: tree.farm_name,
+                                farm_id: tree.farm_id
+                            }));
+                        });
+                        
+                        console.log(`Pre-cached ${trees.length} trees for offline access`);
+                    }
+                } catch (err) {
+                    console.log('Failed to pre-cache trees:', err);
+                }
+                
+                console.log('All pages, assets, and trees pre-cached for offline access');
             } catch (err) {
                 console.error('Error during pre-caching:', err);
             }
@@ -709,15 +732,25 @@
                     
                     // Execute page-specific JavaScript (only inline scripts, not external)
                     const scripts = doc.querySelectorAll('script:not([src])');
-                    scripts.forEach(oldScript => {
-                        // Only execute inline scripts
+                    scripts.forEach((oldScript, index) => {
                         try {
-                            const scriptContent = oldScript.textContent;
+                            let scriptContent = oldScript.textContent;
                             if (scriptContent.trim()) {
-                                // Create and execute script in global scope
+                                // Replace const/let with var to avoid redeclaration errors
+                                // This allows scripts to be re-executed without errors
+                                scriptContent = scriptContent
+                                    .replace(/\bconst\s+/g, 'var ')
+                                    .replace(/\blet\s+/g, 'var ');
+                                
+                                // Execute script directly (not in IIFE) so function declarations are global
+                                // Function declarations are hoisted and will be available globally
+                                // Variables are now 'var' so they can be redeclared without errors
+                                const wrappedScript = scriptContent;
+                                
                                 const newScript = document.createElement('script');
                                 newScript.setAttribute('data-page-script', 'true');
-                                newScript.textContent = scriptContent;
+                                newScript.setAttribute('data-script-index', index);
+                                newScript.textContent = wrappedScript;
                                 document.body.appendChild(newScript);
                             }
                         } catch (err) {

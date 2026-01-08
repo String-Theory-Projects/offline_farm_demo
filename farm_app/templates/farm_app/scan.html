@@ -226,35 +226,43 @@
         const cacheKey = `tree_${treeId}`;
         const cached = localStorage.getItem(cacheKey);
         
-        // If offline and cache exists, use it
-        if (!navigator.onLine && cached) {
-            try {
-                const data = JSON.parse(cached);
-                currentTreeId = data.tree_id;
-                currentFarmName = data.farm_name;
-                
-                document.getElementById('tree-display').textContent = `${data.tree_id} - ${data.farm_name}`;
-                document.getElementById('tree-info').style.display = 'block';
-                document.getElementById('activity-form').style.display = 'block';
-                
-                document.getElementById('activity-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
-                
-                lookupBtn.disabled = false;
-                lookupBtn.textContent = 'Lookup Tree';
-                return;
-            } catch (e) {
-                console.error('Error parsing cached tree data:', e);
+        // If offline, use cache or show error
+        if (!navigator.onLine) {
+            if (cached) {
+                try {
+                    const data = JSON.parse(cached);
+                    currentTreeId = data.tree_id;
+                    currentFarmName = data.farm_name;
+                    
+                    document.getElementById('tree-display').textContent = `${data.tree_id} - ${data.farm_name}`;
+                    document.getElementById('tree-info').style.display = 'block';
+                    document.getElementById('activity-form').style.display = 'block';
+                    
+                    document.getElementById('activity-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    
+                    lookupBtn.disabled = false;
+                    lookupBtn.textContent = 'Lookup Tree';
+                    return;
+                } catch (e) {
+                    console.error('Error parsing cached tree data:', e);
+                }
             }
+            
+            // Offline and not in cache
+            alert('Tree not found in cache. Please connect to internet to lookup new trees.');
+            lookupBtn.disabled = false;
+            lookupBtn.textContent = 'Lookup Tree';
+            return;
         }
         
-        // Try to fetch from API
+        // Online - try to fetch from API
         try {
             const response = await fetch(`/api/tree/${treeId}/`);
             const data = await response.json();
             
             if (data.error) {
-                // If offline and we have cache, use it even if error
-                if (!navigator.onLine && cached) {
+                // If we have cache, use it even if API returns error
+                if (cached) {
                     const cachedData = JSON.parse(cached);
                     currentTreeId = cachedData.tree_id;
                     currentFarmName = cachedData.farm_name;
@@ -292,8 +300,8 @@
             lookupBtn.disabled = false;
             lookupBtn.textContent = 'Lookup Tree';
         } catch (error) {
-            // If offline and cache exists, use it
-            if (!navigator.onLine && cached) {
+            // Network error - try cache if available
+            if (cached) {
                 const cachedData = JSON.parse(cached);
                 currentTreeId = cachedData.tree_id;
                 currentFarmName = cachedData.farm_name;

@@ -7,5 +7,6 @@ urlpatterns = [
     path('api/sync/', views.sync_activities, name='sync_activities'),
     path('api/tree/<str:tree_id>/', views.get_tree_info, name='get_tree_info'),
     path('api/synced-activities/', views.get_synced_activities, name='get_synced_activities'),
+    path('api/all-trees/', views.get_all_trees, name='get_all_trees'),
 ]
 
