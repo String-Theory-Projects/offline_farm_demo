@@ -1,0 +1,359 @@
+{% extends 'farm_app/base.html' %}
+
+{% block title %}Dashboard - Farm Management{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>📋 Activity Log</h2>
+    <p style="color: #666; margin-top: 0.5rem; font-size: 0.9rem;">View synced and pending activities</p>
+</div>
+
+<!-- Pending Activities (from localStorage) -->
+<div id="pending-activities-container" style="display: none;">
+    <div class="card" style="background: #fff3cd; border-left: 4px solid #f39c12;">
+        <h3 style="margin-bottom: 0.75rem; color: #856404;">
+            📋 Pending Activities 
+            <span class="badge badge-pending" id="pending-count">0</span>
+        </h3>
+        <p style="color: #856404; margin-bottom: 1rem; font-size: 0.9rem;">
+            These activities are saved locally and will be synced when you press the Sync button.
+        </p>
+        <div id="pending-activities-list"></div>
+    </div>
+</div>
+
+<!-- Synced Activities (from database or cache) -->
+<div class="card">
+    <h3 style="margin-bottom: 0.75rem;">
+        ✅ Synced Activities
+        <span class="badge badge-synced">0</span>
+    </h3>
+    <div id="synced-activities-list">
+        <div style="text-align: center; padding: 2rem 1rem; color: #999;">
+            <p>Loading...</p>
+        </div>
+    </div>
+</div>
+
+<!-- Sync Button (Fixed Position) -->
+<div class="sync-button-container">
+    <button class="sync-button" id="sync-button" onclick="syncActivities()" title="Sync pending activities to server">
+        🔄 Sync
+        <span class="pending-count" id="sync-pending-count" style="display: none;">0</span>
+    </button>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const STORAGE_KEY = 'farm_activities_pending';
+    const SYNCED_STORAGE_KEY = 'farm_activities_synced';
+    
+    // Load synced activities from API or cache
+    async function loadSyncedActivities() {
+        const syncedList = document.getElementById('synced-activities-list');
+        const syncedCount = document.querySelector('.badge-synced');
+        
+        if (navigator.onLine) {
+            try {
+                const response = await fetch('/api/synced-activities/');
+                const data = await response.json();
+                
+                // Cache synced activities
+                localStorage.setItem(SYNCED_STORAGE_KEY, JSON.stringify(data.activities));
+                
+                // Display synced activities
+                displaySyncedActivities(data.activities);
+                
+                if (syncedCount) {
+                    syncedCount.textContent = data.activities.length;
+                }
+            } catch (error) {
+                console.error('Error loading synced activities:', error);
+                // Fallback to cache if available
+                const cached = localStorage.getItem(SYNCED_STORAGE_KEY);
+                if (cached) {
+                    const activities = JSON.parse(cached);
+                    displaySyncedActivities(activities);
+                    if (syncedCount) {
+                        syncedCount.textContent = activities.length;
+                    }
+                }
+            }
+        } else {
+            // Offline - load from cache
+            const cached = localStorage.getItem(SYNCED_STORAGE_KEY);
+            if (cached) {
+                const activities = JSON.parse(cached);
+                displaySyncedActivities(activities);
+                if (syncedCount) {
+                    syncedCount.textContent = activities.length;
+                }
+            }
+        }
+    }
+    
+    // Display synced activities
+    function displaySyncedActivities(activities) {
+        const syncedList = document.getElementById('synced-activities-list');
+        
+        if (activities.length === 0) {
+            syncedList.innerHTML = `
+                <div style="text-align: center; padding: 3rem 1rem; color: #999;">
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">📭</div>
+                    <p>No synced activities yet.</p>
+                    <p style="font-size: 0.9rem; margin-top: 0.5rem;">Start by scanning a QR code!</p>
+                </div>
+            `;
+            return;
+        }
+        
+        syncedList.innerHTML = '';
+        activities.forEach((activity) => {
+            const activityDate = new Date(activity.date).toLocaleDateString();
+            const activityType = activity.activity_type === 'other' && activity.custom_type 
+                ? activity.custom_type 
+                : activity.activity_type.charAt(0).toUpperCase() + activity.activity_type.slice(1);
+            
+            const item = document.createElement('div');
+            item.className = 'activity-item synced';
+            item.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: start; gap: 0.75rem;">
+                    <div style="flex: 1;">
+                        <strong style="display: block; margin-bottom: 0.5rem; color: #2c3e50;">${activityType}</strong>
+                        <div style="font-size: 0.9rem; color: #666; line-height: 1.6;">
+                            <div>🌳 <strong>Tree:</strong> ${activity.tree_id}</div>
+                            <div>🏡 <strong>Farm:</strong> ${activity.farm_name}</div>
+                            <div>📅 <strong>Date:</strong> ${activityDate}</div>
+                            ${activity.quantity ? `<div>📊 <strong>Quantity:</strong> ${activity.quantity}</div>` : ''}
+                            ${activity.notes ? `<div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #e0e0e0;"><strong>Notes:</strong> ${activity.notes}</div>` : ''}
+                        </div>
+                    </div>
+                    <span class="badge badge-synced" style="flex-shrink: 0;">Synced</span>
+                </div>
+            `;
+            syncedList.appendChild(item);
+        });
+    }
+    
+    // Load and display pending activities
+    function loadPendingActivities() {
+        const pending = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        const container = document.getElementById('pending-activities-container');
+        const list = document.getElementById('pending-activities-list');
+        const countBadge = document.getElementById('pending-count');
+        const syncCountBadge = document.getElementById('sync-pending-count');
+        
+        // Only proceed if we're on the dashboard page (elements exist)
+        if (!container || !list) {
+            return;
+        }
+        
+        if (pending.length > 0) {
+            if (container) container.style.display = 'block';
+            if (countBadge) countBadge.textContent = pending.length;
+            if (syncCountBadge) {
+                syncCountBadge.textContent = pending.length;
+                syncCountBadge.style.display = 'flex';
+            }
+            
+            list.innerHTML = '';
+            pending.forEach((activity, index) => {
+                const activityDate = new Date(activity.date).toLocaleDateString();
+                const activityType = activity.activity_type === 'other' && activity.custom_type 
+                    ? activity.custom_type 
+                    : activity.activity_type.charAt(0).toUpperCase() + activity.activity_type.slice(1);
+                
+                const item = document.createElement('div');
+                item.className = 'activity-item pending';
+                item.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: start; gap: 0.75rem;">
+                        <div style="flex: 1;">
+                            <strong style="display: block; margin-bottom: 0.5rem; color: #2c3e50;">${activityType}</strong>
+                            <div style="font-size: 0.9rem; color: #666; line-height: 1.6;">
+                                <div>🌳 <strong>Tree:</strong> ${activity.tree_id}</div>
+                                <div>🏡 <strong>Farm:</strong> ${activity.farm_name || 'N/A'}</div>
+                                <div>📅 <strong>Date:</strong> ${activityDate}</div>
+                                ${activity.quantity ? `<div>📊 <strong>Quantity:</strong> ${activity.quantity}</div>` : ''}
+                                ${activity.notes ? `<div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #e0e0e0;"><strong>Notes:</strong> ${activity.notes}</div>` : ''}
+                            </div>
+                        </div>
+                        <span class="badge badge-pending" style="flex-shrink: 0;">Pending</span>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        } else {
+            if (container) container.style.display = 'none';
+            if (syncCountBadge) syncCountBadge.style.display = 'none';
+        }
+    }
+    
+    // Track if sync is in progress to prevent duplicate calls
+    let isSyncing = false;
+    
+    // Sync activities to server (simplified - just try and handle errors)
+    async function syncActivities() {
+        // Prevent duplicate sync calls
+        if (isSyncing) {
+            console.log('Sync already in progress, skipping...');
+            return;
+        }
+        
+        const pending = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        
+        if (pending.length === 0) {
+            // Silently return if no pending activities (don't show alert for auto-sync)
+            return;
+        }
+        
+        isSyncing = true;
+        
+        // Basic online check
+        if (!navigator.onLine) {
+            alert('❌ You are offline. Please connect to the internet to sync activities.');
+            isSyncing = false;
+            return;
+        }
+        
+        const button = document.getElementById('sync-button');
+        // Only update button if it exists (we're on dashboard page)
+        if (button) {
+            button.disabled = true;
+            button.innerHTML = '🔄<br>Syncing...';
+            button.style.fontSize = '0.85rem';
+        }
+        
+        try {
+            // Try the sync request directly - simpler approach
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+            
+            const response = await fetch('/api/sync/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ activities: pending }),
+                cache: 'no-store', // Don't cache POST requests
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            // Check response status
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status} ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            
+            // Verify we got a valid success response
+            if (data && data.success === true && typeof data.synced_count === 'number') {
+                // Clear synced activities from localStorage
+                localStorage.removeItem(STORAGE_KEY);
+                
+                // Show success message
+                alert(`✅ Successfully synced ${data.synced_count} activities!`);
+                
+                // Reload synced activities and update display
+                // Only reload if functions exist (we're on dashboard page)
+                if (typeof loadSyncedActivities === 'function') {
+                    loadSyncedActivities();
+                }
+                if (typeof loadPendingActivities === 'function') {
+                    loadPendingActivities();
+                }
+                
+                // Update button only if it exists
+                if (button) {
+                    button.disabled = false;
+                    button.innerHTML = '🔄 Sync';
+                    button.style.fontSize = '1rem';
+                }
+                
+                isSyncing = false;
+            } else {
+                throw new Error(data.error || 'Sync failed - invalid response from server');
+            }
+        } catch (error) {
+            // Handle different error types
+            let errorMessage = '❌ Network error. Please check your connection and try again.';
+            
+            if (error.name === 'AbortError') {
+                errorMessage = '❌ Request timed out. Please check your connection and try again.';
+            } else if (error.message) {
+                errorMessage = `❌ ${error.message}`;
+            }
+            
+            alert(errorMessage);
+            
+            // Restore button state only if it exists
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = '🔄 Sync';
+                button.style.fontSize = '1rem';
+            }
+            
+            // Restore pending count
+            const pendingCount = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]').length;
+            if (pendingCount > 0) {
+                const syncCountBadge = document.getElementById('sync-pending-count');
+                if (syncCountBadge) {
+                    syncCountBadge.textContent = pendingCount;
+                    syncCountBadge.style.display = 'flex';
+                }
+            }
+        } finally {
+            isSyncing = false;
+        }
+    }
+    
+    // Make syncActivities available globally for auto-sync
+    window.syncActivities = syncActivities;
+    
+    // Update sync button based on online status
+    function updateSyncButtonState() {
+        const button = document.getElementById('sync-button');
+        if (!button) return;
+        
+        if (!navigator.onLine) {
+            button.disabled = true;
+            button.style.opacity = '0.6';
+            button.style.cursor = 'not-allowed';
+            button.title = 'Offline - Cannot sync. Please connect to internet.';
+        } else {
+            button.disabled = false;
+            button.style.opacity = '1';
+            button.style.cursor = 'pointer';
+            button.title = 'Sync pending activities to server';
+        }
+    }
+    
+    // Listen for online/offline events
+    window.addEventListener('online', () => {
+        updateSyncButtonState();
+        // Auto-sync when coming back online
+        const pending = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        if (pending.length > 0) {
+            setTimeout(() => {
+                // Double-check we still have pending activities and are online
+                const stillPending = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+                if (stillPending.length > 0 && navigator.onLine) {
+                    console.log('Connection restored - auto-syncing...');
+                    syncActivities();
+                }
+            }, 1500);
+        }
+    });
+    
+    window.addEventListener('offline', () => {
+        updateSyncButtonState();
+    });
+    
+    // Load activities on page load
+    loadSyncedActivities();
+    loadPendingActivities();
+    updateSyncButtonState();
+</script>
+{% endblock %}

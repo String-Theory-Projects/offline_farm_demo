@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>{% block title %}Offline Farm Management{% endblock %}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        html, body {
+            height: 100%;
+            overflow-x: hidden;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+            padding-bottom: 80px; /* Space for bottom nav */
+        }
+        
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 0.75rem;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        
+        .nav {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .nav a {
+            color: white;
+            text-decoration: none;
+            padding: 0.5rem 0.75rem;
+            background: rgba(255,255,255,0.15);
+            border-radius: 6px;
+            transition: background 0.2s;
+            font-size: 0.9rem;
+            -webkit-tap-highlight-color: rgba(255,255,255,0.2);
+        }
+        
+        .nav a:active {
+            background: rgba(255,255,255,0.25);
+        }
+        
+        /* Bottom Navigation Bar (Mobile) */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 0.5rem 0;
+            z-index: 1000;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .bottom-nav a {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-decoration: none;
+            color: #666;
+            padding: 0.5rem;
+            min-width: 60px;
+            transition: color 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        .bottom-nav a.active {
+            color: #27ae60;
+        }
+        
+        .bottom-nav a svg {
+            width: 24px;
+            height: 24px;
+            margin-bottom: 0.25rem;
+            stroke: currentColor;
+            fill: none;
+        }
+        
+        .bottom-nav a small {
+            font-size: 0.7rem;
+            font-weight: 500;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 1rem 1.5rem;
+            background: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+            text-align: center;
+            width: 100%;
+            -webkit-tap-highlight-color: rgba(39, 174, 96, 0.3);
+            touch-action: manipulation;
+            min-height: 48px; /* Minimum touch target size */
+        }
+        
+        .btn:active {
+            transform: scale(0.98);
+            background: #229954;
+        }
+        
+        .btn-primary {
+            background: #3498db;
+        }
+        
+        .btn-primary:active {
+            background: #2980b9;
+        }
+        
+        .btn-danger {
+            background: #e74c3c;
+        }
+        
+        .btn-danger:active {
+            background: #c0392b;
+        }
+        
+        .btn-secondary {
+            background: #95a5a6;
+        }
+        
+        .btn-secondary:active {
+            background: #7f8c8d;
+        }
+        
+        .btn-small {
+            padding: 0.75rem 1rem;
+            font-size: 0.9rem;
+            width: auto;
+            min-height: 44px;
+        }
+        
+        .card {
+            background: white;
+            padding: 1.25rem;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 1rem;
+        }
+        
+        .card h2 {
+            font-size: 1.3rem;
+            margin-bottom: 0.5rem;
+            color: #2c3e50;
+        }
+        
+        .card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 0.75rem;
+            color: #2c3e50;
+        }
+        
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 0.95rem;
+        }
+        
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 1rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+            -webkit-appearance: none;
+            appearance: none;
+            background: white;
+        }
+        
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #27ae60;
+        }
+        
+        .form-group textarea {
+            min-height: 120px;
+            resize: vertical;
+            font-family: inherit;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 0.35rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        
+        .badge-synced {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .badge-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .activity-item {
+            padding: 1rem;
+            border-left: 4px solid #3498db;
+            margin-bottom: 0.75rem;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .activity-item.pending {
+            border-left-color: #f39c12;
+        }
+        
+        .activity-item.synced {
+            border-left-color: #27ae60;
+        }
+        
+        .sync-button-container {
+            position: fixed;
+            bottom: 80px; /* Above bottom nav */
+            right: 1rem;
+            z-index: 999;
+        }
+        
+        .sync-button {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 1.25rem 1.75rem;
+            border-radius: 50px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
+            transition: all 0.2s;
+            min-width: 80px;
+            min-height: 80px;
+            touch-action: manipulation;
+        }
+        
+        .sync-button:active {
+            transform: scale(0.95);
+            box-shadow: 0 2px 8px rgba(231, 76, 60, 0.3);
+        }
+        
+        .sync-button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+            opacity: 0.6;
+            box-shadow: none;
+        }
+        
+        .sync-button:disabled:active {
+            transform: none;
+        }
+        
+        .pending-count {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #f39c12;
+            color: white;
+            border-radius: 50%;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: bold;
+            border: 2px solid white;
+        }
+        
+        #video {
+            width: 100%;
+            max-height: 60vh;
+            object-fit: cover;
+            border-radius: 12px;
+            background: #000;
+        }
+        
+        #scanner-container {
+            text-align: center;
+            margin: 1rem 0;
+        }
+        
+        .scanner-overlay {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+        }
+        
+        .scanner-frame {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 70%;
+            height: 70%;
+            border: 3px solid #27ae60;
+            border-radius: 12px;
+            box-shadow: 0 0 0 9999px rgba(0,0,0,0.5);
+            pointer-events: none;
+        }
+        
+        .success-message {
+            background: #d4edda;
+            border-left: 4px solid #27ae60;
+            padding: 1.5rem;
+            border-radius: 12px;
+            margin: 1rem 0;
+        }
+        
+        .info-box {
+            padding: 1rem;
+            background: #d4edda;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            border-left: 4px solid #27ae60;
+        }
+        
+        /* Desktop styles */
+        @media (min-width: 768px) {
+            .container {
+                max-width: 600px;
+                padding: 1rem;
+            }
+            
+            .bottom-nav {
+                display: none;
+            }
+            
+            body {
+                padding-bottom: 0;
+            }
+            
+            .sync-button-container {
+                bottom: 1rem;
+            }
+            
+            .header h1 {
+                font-size: 1.5rem;
+            }
+        }
+        
+        /* Mobile optimizations */
+        @media (max-width: 767px) {
+            .header {
+                margin: 0 -0.75rem 0.75rem -0.75rem;
+                border-radius: 0;
+            }
+            
+            .container {
+                padding: 0.75rem;
+            }
+            
+            .card {
+                padding: 1rem;
+            }
+            
+            .nav {
+                display: none; /* Hide top nav on mobile, use bottom nav */
+            }
+            
+            #video {
+                max-height: 50vh;
+            }
+        }
+        
+        /* Loading state */
+        .loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        
+        /* Smooth scrolling */
+        html {
+            scroll-behavior: smooth;
+        }
+        
+        /* Offline indicator */
+        #offline-indicator {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: #f39c12;
+            color: white;
+            text-align: center;
+            padding: 0.75rem;
+            z-index: 10000;
+            font-weight: 500;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            animation: slideDown 0.3s ease-out;
+        }
+        
+        @keyframes slideDown {
+            from {
+                transform: translateY(-100%);
+            }
+            to {
+                transform: translateY(0);
+            }
+        }
+        
+        body.offline {
+            padding-top: 50px;
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <div class="header">
+        <h1 style="display: flex; align-items: center; gap: 0.5rem;">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" style="width: 24px; height: 24px; fill: white;">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+            </svg>
+            Offline Farm Management
+        </h1>
+        <div class="nav">
+            <a href="{% url 'dashboard' %}">Dashboard</a>
+            <a href="{% url 'scan' %}">Scan QR</a>
+        </div>
+    </div>
+    
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+    
+    <!-- Bottom Navigation (Mobile) -->
+    <div class="bottom-nav">
+        <a href="{% url 'scan' %}" class="{% if request.resolver_match.url_name == 'scan' %}active{% endif %}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                <circle cx="12" cy="13" r="4"></circle>
+            </svg>
+            <small>Scan</small>
+        </a>
+        <a href="{% url 'dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="8" y1="6" x2="21" y2="6"></line>
+                <line x1="8" y1="12" x2="21" y2="12"></line>
+                <line x1="8" y1="18" x2="21" y2="18"></line>
+                <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                <line x1="3" y1="18" x2="3.01" y2="18"></line>
+            </svg>
+            <small>Dashboard</small>
+        </a>
+    </div>
+    
+    {% block extra_js %}{% endblock %}
+    
+    <script>
+        // Offline detection and UI
+        function updateOnlineStatus() {
+            const isOnline = navigator.onLine;
+            const indicator = document.getElementById('offline-indicator');
+            const body = document.body;
+            
+            if (!isOnline) {
+                if (!indicator) {
+                    const div = document.createElement('div');
+                    div.id = 'offline-indicator';
+                    div.innerHTML = '⚠️ You are offline. Changes will sync when connection is restored.';
+                    document.body.insertBefore(div, document.body.firstChild);
+                }
+                body.classList.add('offline');
+            } else {
+                if (indicator) {
+                    indicator.style.background = '#27ae60';
+                    indicator.innerHTML = '✓ Back online. Syncing...';
+                    setTimeout(() => {
+                        if (indicator) {
+                            indicator.remove();
+                            body.classList.remove('offline');
+                        }
+                    }, 3000);
+                }
+                // Auto-sync when coming back online
+                const pending = JSON.parse(localStorage.getItem('farm_activities_pending') || '[]');
+                if (pending.length > 0) {
+                    // Wait for connection to stabilize, then attempt sync
+                    setTimeout(() => {
+                        // Double-check we still have pending activities and are online
+                        const stillPending = JSON.parse(localStorage.getItem('farm_activities_pending') || '[]');
+                        if (stillPending.length > 0 && navigator.onLine) {
+                            // Check if syncActivities is available (from dashboard page)
+                            if (typeof window.syncActivities === 'function') {
+                                console.log('Auto-syncing pending activities...');
+                                window.syncActivities();
+                            } else if (typeof syncActivities === 'function') {
+                                // Fallback if not on window object
+                                console.log('Auto-syncing pending activities (fallback)...');
+                                syncActivities();
+                            }
+                        }
+                    }, 1500); // Wait 1.5 seconds for connection to stabilize
+                }
+            }
+        }
+        
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+        updateOnlineStatus();
+        
+        // Register Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/static/farm_app/service-worker.js')
+                    .then((reg) => {
+                        console.log('Service Worker registered successfully:', reg.scope);
+                    })
+                    .catch((err) => {
+                        console.log('Service Worker registration failed:', err);
+                    });
+            });
+        }
+    </script>
+</body>
+</html>

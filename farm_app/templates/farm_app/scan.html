@@ -1,0 +1,385 @@
+{% extends 'farm_app/base.html' %}
+
+{% block title %}Scan QR - Farm Management{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>📷 Record Activity</h2>
+    <p style="color: #666; margin-top: 0.5rem; font-size: 0.9rem;">Scan QR code or enter tree ID</p>
+</div>
+
+<div class="card">
+    <!-- Primary Action: Scan Button -->
+    <button type="button" class="btn btn-primary" onclick="startScanning()" id="scan-btn" style="margin-bottom: 1rem;">
+        📷 Open Camera Scanner
+    </button>
+    
+    <div style="text-align: center; margin: 1rem 0; color: #999; font-size: 0.9rem;">OR</div>
+    
+    <!-- Manual Entry -->
+    <div class="form-group">
+        <label for="tree-id-input">Enter Tree ID</label>
+        <input type="text" id="tree-id-input" placeholder="e.g., TREE-001" autofocus>
+    </div>
+    
+    <button type="button" class="btn" onclick="lookupTree()" id="lookup-btn">Lookup Tree</button>
+    
+    <!-- Camera Scanner -->
+    <div id="scanner-container" style="display: none; margin-top: 1.5rem;">
+        <div class="scanner-overlay">
+            <video id="video" autoplay playsinline></video>
+            <div class="scanner-frame"></div>
+        </div>
+        <canvas id="canvas" style="display: none;"></canvas>
+        <div style="margin-top: 1rem;">
+            <button type="button" class="btn btn-danger" onclick="stopScanning()">Stop Scanning</button>
+        </div>
+        <p style="text-align: center; color: #666; margin-top: 0.75rem; font-size: 0.9rem;">Point camera at QR code</p>
+    </div>
+    
+    <!-- Tree Info -->
+    <div id="tree-info" class="info-box" style="display: none;">
+        <strong>✓ Tree Found:</strong> <span id="tree-display"></span>
+    </div>
+    
+    <!-- Activity Form -->
+    <div id="activity-form" style="display: none; margin-top: 1rem;">
+        <h3 style="margin-bottom: 1rem; color: #2c3e50;">Activity Details</h3>
+        
+        <form id="activity-form-element">
+            <div class="form-group">
+                <label for="activity-type">Activity Type *</label>
+                <select id="activity-type" required onchange="toggleCustomType()">
+                    <option value="">Select activity type</option>
+                    <option value="fertilizer">🌱 Fertilizer Application</option>
+                    <option value="pruning">✂️ Pruning</option>
+                    <option value="harvesting">🌾 Harvesting</option>
+                    <option value="other">📝 Other</option>
+                </select>
+            </div>
+            
+            <div class="form-group" id="custom-type-group" style="display: none;">
+                <label for="custom-type">Custom Activity Type</label>
+                <input type="text" id="custom-type" placeholder="e.g., Pest Treatment, Irrigation">
+            </div>
+            
+            <div class="form-group">
+                <label for="activity-date">Date *</label>
+                <input type="date" id="activity-date" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="quantity">Quantity (optional)</label>
+                <input type="text" id="quantity" placeholder="e.g., 5kg, 10 bags">
+            </div>
+            
+            <div class="form-group">
+                <label for="notes">Notes (optional)</label>
+                <textarea id="notes" placeholder="Additional notes about this activity"></textarea>
+            </div>
+            
+            <button type="submit" class="btn btn-primary">💾 Save Activity</button>
+        </form>
+    </div>
+</div>
+
+<!-- Success Message -->
+<div id="success-message" class="card success-message" style="display: none;">
+    <h3 style="color: #155724; margin-bottom: 0.5rem;">✅ Activity Saved!</h3>
+    <p style="color: #155724; margin-bottom: 1rem;">Saved locally. Sync to server from dashboard.</p>
+    <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+        <a href="{% url 'dashboard' %}" class="btn btn-small" style="flex: 1; min-width: 120px;">📋 Dashboard</a>
+        <button type="button" class="btn btn-secondary btn-small" onclick="resetForm()" style="flex: 1; min-width: 120px;">➕ Another</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script>
+    const STORAGE_KEY = 'farm_activities_pending';
+    let currentTreeId = null;
+    let currentFarmName = null;
+    let scanning = false;
+    let stream = null;
+    let video = null;
+    let canvas = null;
+    let context = null;
+    
+    // Set today's date as default
+    document.getElementById('activity-date').valueAsDate = new Date();
+    
+    // Initialize camera elements
+    function initCamera() {
+        video = document.getElementById('video');
+        canvas = document.getElementById('canvas');
+        context = canvas.getContext('2d');
+    }
+    
+    // Start QR code scanning
+    async function startScanning() {
+        if (scanning) return;
+        
+        try {
+            initCamera();
+            
+            // Hide manual entry
+            document.getElementById('tree-id-input').parentElement.style.display = 'none';
+            document.getElementById('lookup-btn').style.display = 'none';
+            document.getElementById('scan-btn').style.display = 'none';
+            
+            // Request camera access
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { 
+                    facingMode: 'environment',
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
+            });
+            
+            video.srcObject = stream;
+            video.setAttribute('playsinline', true);
+            
+            document.getElementById('scanner-container').style.display = 'block';
+            scanning = true;
+            
+            // Scroll to scanner
+            document.getElementById('scanner-container').scrollIntoView({ behavior: 'smooth', block: 'center' });
+            
+            // Start scanning loop
+            scanQRCode();
+        } catch (error) {
+            alert('Unable to access camera. Please check permissions or enter tree ID manually.');
+            console.error('Camera error:', error);
+            // Show manual entry again
+            document.getElementById('tree-id-input').parentElement.style.display = 'block';
+            document.getElementById('lookup-btn').style.display = 'block';
+            document.getElementById('scan-btn').style.display = 'block';
+        }
+    }
+    
+    // Stop scanning
+    function stopScanning() {
+        scanning = false;
+        
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+        }
+        
+        if (video) {
+            video.srcObject = null;
+        }
+        
+        document.getElementById('scanner-container').style.display = 'none';
+        document.getElementById('tree-id-input').parentElement.style.display = 'block';
+        document.getElementById('lookup-btn').style.display = 'block';
+        document.getElementById('scan-btn').style.display = 'block';
+    }
+    
+    // QR code scanning loop
+    function scanQRCode() {
+        if (!scanning || !video || !canvas) return;
+        
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.height = video.videoHeight;
+            canvas.width = video.videoWidth;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height);
+            
+            if (code) {
+                // QR code detected!
+                const treeId = code.data.trim();
+                document.getElementById('tree-id-input').value = treeId;
+                stopScanning();
+                lookupTree();
+            }
+        }
+        
+        if (scanning) {
+            requestAnimationFrame(scanQRCode);
+        }
+    }
+    
+    function toggleCustomType() {
+        const activityType = document.getElementById('activity-type').value;
+        const customGroup = document.getElementById('custom-type-group');
+        customGroup.style.display = activityType === 'other' ? 'block' : 'none';
+    }
+    
+    async function lookupTree() {
+        const treeId = document.getElementById('tree-id-input').value.trim();
+        
+        if (!treeId) {
+            alert('Please enter a tree ID');
+            return;
+        }
+        
+        // Show loading state
+        const lookupBtn = document.getElementById('lookup-btn');
+        lookupBtn.disabled = true;
+        lookupBtn.textContent = 'Looking up...';
+        
+        // Check cache first
+        const cacheKey = `tree_${treeId}`;
+        const cached = localStorage.getItem(cacheKey);
+        
+        // If offline and cache exists, use it
+        if (!navigator.onLine && cached) {
+            try {
+                const data = JSON.parse(cached);
+                currentTreeId = data.tree_id;
+                currentFarmName = data.farm_name;
+                
+                document.getElementById('tree-display').textContent = `${data.tree_id} - ${data.farm_name}`;
+                document.getElementById('tree-info').style.display = 'block';
+                document.getElementById('activity-form').style.display = 'block';
+                
+                document.getElementById('activity-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                
+                lookupBtn.disabled = false;
+                lookupBtn.textContent = 'Lookup Tree';
+                return;
+            } catch (e) {
+                console.error('Error parsing cached tree data:', e);
+            }
+        }
+        
+        // Try to fetch from API
+        try {
+            const response = await fetch(`/api/tree/${treeId}/`);
+            const data = await response.json();
+            
+            if (data.error) {
+                // If offline and we have cache, use it even if error
+                if (!navigator.onLine && cached) {
+                    const cachedData = JSON.parse(cached);
+                    currentTreeId = cachedData.tree_id;
+                    currentFarmName = cachedData.farm_name;
+                    
+                    document.getElementById('tree-display').textContent = `${cachedData.tree_id} - ${cachedData.farm_name} (cached)`;
+                    document.getElementById('tree-info').style.display = 'block';
+                    document.getElementById('activity-form').style.display = 'block';
+                    
+                    document.getElementById('activity-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    
+                    lookupBtn.disabled = false;
+                    lookupBtn.textContent = 'Lookup Tree';
+                    return;
+                }
+                
+                alert('Tree not found: ' + data.error);
+                lookupBtn.disabled = false;
+                lookupBtn.textContent = 'Lookup Tree';
+                return;
+            }
+            
+            // Cache the response
+            localStorage.setItem(cacheKey, JSON.stringify(data));
+            
+            currentTreeId = data.tree_id;
+            currentFarmName = data.farm_name;
+            
+            document.getElementById('tree-display').textContent = `${data.tree_id} - ${data.farm_name}`;
+            document.getElementById('tree-info').style.display = 'block';
+            document.getElementById('activity-form').style.display = 'block';
+            
+            // Scroll to form
+            document.getElementById('activity-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            
+            lookupBtn.disabled = false;
+            lookupBtn.textContent = 'Lookup Tree';
+        } catch (error) {
+            // If offline and cache exists, use it
+            if (!navigator.onLine && cached) {
+                const cachedData = JSON.parse(cached);
+                currentTreeId = cachedData.tree_id;
+                currentFarmName = cachedData.farm_name;
+                
+                document.getElementById('tree-display').textContent = `${cachedData.tree_id} - ${cachedData.farm_name} (cached)`;
+                document.getElementById('tree-info').style.display = 'block';
+                document.getElementById('activity-form').style.display = 'block';
+                
+                document.getElementById('activity-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                
+                lookupBtn.disabled = false;
+                lookupBtn.textContent = 'Lookup Tree';
+            } else {
+                alert('Error looking up tree. Please check your connection.');
+                lookupBtn.disabled = false;
+                lookupBtn.textContent = 'Lookup Tree';
+            }
+        }
+    }
+    
+    // Handle form submission
+    document.getElementById('activity-form-element').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const activityType = document.getElementById('activity-type').value;
+        const customType = document.getElementById('custom-type').value;
+        const date = document.getElementById('activity-date').value;
+        const quantity = document.getElementById('quantity').value;
+        const notes = document.getElementById('notes').value;
+        
+        if (!activityType) {
+            alert('Please select an activity type');
+            return;
+        }
+        
+        if (activityType === 'other' && !customType.trim()) {
+            alert('Please enter a custom activity type');
+            return;
+        }
+        
+        // Create activity object
+        const activity = {
+            tree_id: currentTreeId,
+            farm_name: currentFarmName,
+            activity_type: activityType,
+            custom_type: activityType === 'other' ? customType : '',
+            date: date,
+            quantity: quantity,
+            notes: notes,
+            timestamp: new Date().toISOString()
+        };
+        
+        // Save to localStorage
+        const pending = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        pending.push(activity);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(pending));
+        
+        // Show success message
+        document.getElementById('activity-form').style.display = 'none';
+        document.getElementById('success-message').style.display = 'block';
+        document.getElementById('success-message').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    
+    function resetForm() {
+        stopScanning();
+        document.getElementById('tree-id-input').value = '';
+        document.getElementById('tree-info').style.display = 'none';
+        document.getElementById('activity-form').style.display = 'none';
+        document.getElementById('success-message').style.display = 'none';
+        document.getElementById('activity-form-element').reset();
+        document.getElementById('activity-date').valueAsDate = new Date();
+        currentTreeId = null;
+        currentFarmName = null;
+        document.getElementById('tree-id-input').focus();
+    }
+    
+    // Clean up camera on page unload
+    window.addEventListener('beforeunload', function() {
+        stopScanning();
+    });
+    
+    // Allow Enter key to trigger lookup
+    document.getElementById('tree-id-input').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            lookupTree();
+        }
+    });
+</script>
+{% endblock %}
