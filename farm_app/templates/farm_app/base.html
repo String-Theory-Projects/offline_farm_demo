@@ -551,17 +551,77 @@
         window.addEventListener('offline', updateOnlineStatus);
         updateOnlineStatus();
         
-        // Register Service Worker
+        // Register Service Worker and pre-cache all pages
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/static/farm_app/service-worker.js')
                     .then((reg) => {
                         console.log('Service Worker registered successfully:', reg.scope);
+                        
+                        // Wait for service worker to be ready, then pre-cache all pages
+                        if (reg.installing || reg.waiting) {
+                            reg.addEventListener('statechange', () => {
+                                if (reg.active) {
+                                    preCacheAllPages();
+                                }
+                            });
+                        } else if (reg.active) {
+                            preCacheAllPages();
+                        }
                     })
                     .catch((err) => {
                         console.log('Service Worker registration failed:', err);
                     });
             });
+        }
+        
+        // Pre-cache all pages and critical assets for offline access
+        async function preCacheAllPages() {
+            if (!navigator.onLine) return; // Don't pre-cache if already offline
+            
+            const pagesToCache = [
+                '/',
+                '/scan/',
+            ];
+            
+            const assetsToCache = [
+                '/static/farm_app/service-worker.js',
+                'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js',
+            ];
+            
+            try {
+                // Cache all pages
+                for (const page of pagesToCache) {
+                    try {
+                        const response = await fetch(page, { cache: 'no-cache' });
+                        if (response.ok) {
+                            const cache = await caches.open('farm-management-v2');
+                            await cache.put(page, response.clone());
+                            console.log('Pre-cached page:', page);
+                        }
+                    } catch (err) {
+                        console.log('Failed to pre-cache page:', page, err);
+                    }
+                }
+                
+                // Cache external assets
+                for (const asset of assetsToCache) {
+                    try {
+                        const response = await fetch(asset, { cache: 'no-cache' });
+                        if (response.ok) {
+                            const cache = await caches.open('farm-management-v2');
+                            await cache.put(asset, response.clone());
+                            console.log('Pre-cached asset:', asset);
+                        }
+                    } catch (err) {
+                        console.log('Failed to pre-cache asset:', asset, err);
+                    }
+                }
+                
+                console.log('All pages and assets pre-cached for offline access');
+            } catch (err) {
+                console.error('Error during pre-caching:', err);
+            }
         }
     </script>
 </body>
