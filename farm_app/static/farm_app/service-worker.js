@@ -1,4 +1,4 @@
-const CACHE_NAME = 'farm-management-v2';
+const CACHE_NAME = 'farm-management-v3';
 const urlsToCache = [
     // Main pages
     '/',
@@ -79,6 +79,75 @@ self.addEventListener('fetch', (event) => {
         return; // Let browser handle other cross-origin requests
     }
 
+    // Special handling for navigation requests (CRITICAL for offline)
+    if (event.request.mode === 'navigate' || 
+        (event.request.destination === 'document' && event.request.method === 'GET')) {
+        event.respondWith(
+            (async () => {
+                try {
+                    // Try exact match first
+                    let cachedResponse = await caches.match(event.request);
+                    
+                    // If not found, try matching by URL pathname
+                    if (!cachedResponse) {
+                        cachedResponse = await caches.match(url.pathname);
+                    }
+                    
+                    // If still not found, try with trailing slash
+                    if (!cachedResponse && !url.pathname.endsWith('/')) {
+                        cachedResponse = await caches.match(url.pathname + '/');
+                    }
+                    
+                    if (cachedResponse) {
+                        console.log('Service Worker: Serving navigation from cache:', url.pathname);
+                        return cachedResponse;
+                    }
+                    
+                    // If not cached and online, fetch and cache
+                    if (navigator.onLine) {
+                        try {
+                            const response = await fetch(event.request);
+                            if (response.ok) {
+                                const responseToCache = response.clone();
+                                const cache = await caches.open(CACHE_NAME);
+                                await cache.put(event.request, responseToCache);
+                                // Also cache by pathname for easier matching
+                                await cache.put(url.pathname, responseToCache);
+                                console.log('Service Worker: Cached navigation:', url.pathname);
+                                return response;
+                            }
+                        } catch (err) {
+                            console.log('Service Worker: Network fetch failed for navigation:', err);
+                        }
+                    }
+                    
+                    // Offline - try to return any cached page or fallback
+                    const fallback = await caches.match('/') || 
+                                   await caches.match('/scan/');
+                    
+                    if (fallback) {
+                        console.log('Service Worker: Returning fallback page for:', url.pathname);
+                        return fallback;
+                    }
+                    
+                    // Last resort: return basic offline page
+                    return new Response(
+                        '<!DOCTYPE html><html><head><title>Offline</title></head><body><h1>Offline</h1><p>This page is not available offline.</p></body></html>',
+                        {
+                            headers: { 'Content-Type': 'text/html' },
+                            status: 503
+                        }
+                    );
+                } catch (error) {
+                    console.error('Service Worker: Navigation error:', error);
+                    return new Response('Offline', { status: 503 });
+                }
+            })()
+        );
+        return;
+    }
+
+    // Handle other requests (scripts, styles, images, API)
     event.respondWith(
         caches.match(event.request)
             .then((cachedResponse) => {
@@ -125,42 +194,26 @@ self.addEventListener('fetch', (event) => {
                     .catch((error) => {
                         console.log('Service Worker: Network fetch failed:', event.request.url);
                         
-                        // If offline and request is for a page, try to return a cached page
-                        if (event.request.destination === 'document') {
-                            // Try to match the exact page first
-                            const url = new URL(event.request.url);
-                            const path = url.pathname;
-                            
-                            // Try to return the specific page, or fallback to home
-                            return caches.match(path)
-                                .then(cached => cached || caches.match('/'))
+                        // For API requests, return cached data if available
+                        if (event.request.url.includes('/api/')) {
+                            return caches.match(event.request)
                                 .then(cached => {
                                     if (cached) {
                                         return cached;
                                     }
-                                    // Last resort: return a basic offline page
                                     return new Response(
-                                        '<html><body><h1>Offline</h1><p>This page is not available offline.</p></body></html>',
+                                        JSON.stringify({ error: 'Offline - no cached data' }),
                                         {
-                                            headers: { 'Content-Type': 'text/html' }
+                                            status: 503,
+                                            headers: { 'Content-Type': 'application/json' }
                                         }
                                     );
                                 });
                         }
                         
-                        // For API requests, return a basic error response
-                        if (event.request.url.includes('/api/')) {
-                            return new Response(
-                                JSON.stringify({ error: 'Offline - no cached data' }),
-                                {
-                                    status: 503,
-                                    headers: { 'Content-Type': 'application/json' }
-                                }
-                            );
-                        }
-                        
-                        // For other requests (scripts, styles, images), return error
-                        throw error;
+                        // For other requests, try to return from cache
+                        return caches.match(event.request)
+                            .then(cached => cached || Promise.reject(error));
                     });
             })
     );

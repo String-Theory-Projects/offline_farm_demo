@@ -352,8 +352,20 @@
     });
     
     // Load activities on page load
-    loadSyncedActivities();
-    loadPendingActivities();
-    updateSyncButtonState();
+    function initializeDashboard() {
+        loadSyncedActivities();
+        loadPendingActivities();
+        updateSyncButtonState();
+    }
+    
+    // Initialize on page load
+    initializeDashboard();
+    
+    // Re-initialize when page is loaded via client-side navigation
+    window.addEventListener('pageLoaded', function(e) {
+        if (e.detail.url === '/' || e.detail.url === '') {
+            initializeDashboard();
+        }
+    });
 </script>
 {% endblock %}

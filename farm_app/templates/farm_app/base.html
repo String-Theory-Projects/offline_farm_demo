@@ -568,6 +568,11 @@
                         } else if (reg.active) {
                             preCacheAllPages();
                         }
+                        
+                        // Also pre-cache immediately (don't wait)
+                        if (navigator.onLine) {
+                            preCacheAllPages();
+                        }
                     })
                     .catch((err) => {
                         console.log('Service Worker registration failed:', err);
@@ -595,7 +600,7 @@
                     try {
                         const response = await fetch(page, { cache: 'no-cache' });
                         if (response.ok) {
-                            const cache = await caches.open('farm-management-v2');
+                            const cache = await caches.open('farm-management-v3');
                             await cache.put(page, response.clone());
                             console.log('Pre-cached page:', page);
                         }
@@ -609,7 +614,7 @@
                     try {
                         const response = await fetch(asset, { cache: 'no-cache' });
                         if (response.ok) {
-                            const cache = await caches.open('farm-management-v2');
+                            const cache = await caches.open('farm-management-v3');
                             await cache.put(asset, response.clone());
                             console.log('Pre-cached asset:', asset);
                         }
@@ -622,6 +627,159 @@
             } catch (err) {
                 console.error('Error during pre-caching:', err);
             }
+        }
+        
+        // Client-side navigation to prevent page reloads (CRITICAL for offline)
+        function setupNavigationLinks() {
+            document.querySelectorAll('a[href^="/"]').forEach(link => {
+                // Skip if already has client-side navigation handler
+                if (link.dataset.clientNav === 'true') {
+                    return;
+                }
+                
+                // Mark as processed
+                link.dataset.clientNav = 'true';
+                
+                link.addEventListener('click', function(e) {
+                    const href = this.getAttribute('href');
+                    
+                    // Skip if it's an external link or has special attributes
+                    if (this.target === '_blank' || this.hasAttribute('download') || href.startsWith('http')) {
+                        return;
+                    }
+                    
+                    // Prevent default navigation
+                    e.preventDefault();
+                    
+                    // Navigate using client-side routing
+                    navigateToPage(href);
+                });
+            });
+        }
+        
+        function initializeClientSideNavigation() {
+            setupNavigationLinks();
+        }
+        
+        // Client-side page navigation (works offline from cache)
+        async function navigateToPage(url) {
+            try {
+                // Update URL without reload
+                window.history.pushState({}, '', url);
+                
+                // Update active nav state
+                updateActiveNavState(url);
+                
+                // Try to get from cache first (works offline)
+                const cache = await caches.open('farm-management-v3');
+                let response = await cache.match(url);
+                
+                // If not in cache and online, fetch from network
+                if (!response && navigator.onLine) {
+                    try {
+                        response = await fetch(url);
+                        if (response.ok) {
+                            await cache.put(url, response.clone());
+                        }
+                    } catch (err) {
+                        console.log('Network fetch failed, trying cache:', err);
+                        // Try cache as fallback
+                        response = await cache.match(url);
+                    }
+                }
+                
+                if (response) {
+                    const html = await response.text();
+                    
+                    // Parse the HTML
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    
+                    // Update page content
+                    const newContainer = doc.querySelector('.container');
+                    if (newContainer) {
+                        document.querySelector('.container').innerHTML = newContainer.innerHTML;
+                    }
+                    
+                    // Update page title
+                    document.title = doc.title;
+                    
+                    // Remove old page-specific scripts
+                    document.querySelectorAll('script[data-page-script]').forEach(script => script.remove());
+                    
+                    // Execute page-specific JavaScript (only inline scripts, not external)
+                    const scripts = doc.querySelectorAll('script:not([src])');
+                    scripts.forEach(oldScript => {
+                        // Only execute inline scripts
+                        try {
+                            const scriptContent = oldScript.textContent;
+                            if (scriptContent.trim()) {
+                                // Create and execute script in global scope
+                                const newScript = document.createElement('script');
+                                newScript.setAttribute('data-page-script', 'true');
+                                newScript.textContent = scriptContent;
+                                document.body.appendChild(newScript);
+                            }
+                        } catch (err) {
+                            console.error('Error executing page script:', err);
+                        }
+                    });
+                    
+                    // Re-initialize navigation links after content update
+                    // Clear data attributes so links can be re-processed
+                    document.querySelectorAll('a[href^="/"][data-client-nav]').forEach(link => {
+                        delete link.dataset.clientNav;
+                    });
+                    setupNavigationLinks();
+                    
+                    // Scroll to top
+                    window.scrollTo(0, 0);
+                    
+                    // Trigger custom event for page-specific initialization
+                    window.dispatchEvent(new CustomEvent('pageLoaded', { detail: { url } }));
+                } else {
+                    throw new Error('Page not available offline');
+                }
+            } catch (error) {
+                console.error('Navigation error:', error);
+                // Fallback to regular navigation if client-side fails
+                if (navigator.onLine) {
+                    window.location.href = url;
+                } else {
+                    alert('This page is not available offline. Please connect to the internet.');
+                }
+            }
+        }
+        
+        // Update active navigation state
+        function updateActiveNavState(url) {
+            // Update bottom nav
+            document.querySelectorAll('.bottom-nav a').forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === url) {
+                    link.classList.add('active');
+                }
+            });
+            
+            // Update top nav
+            document.querySelectorAll('.nav a').forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === url) {
+                    link.classList.add('active');
+                }
+            });
+        }
+        
+        // Handle browser back/forward buttons
+        window.addEventListener('popstate', function(e) {
+            navigateToPage(window.location.pathname);
+        });
+        
+        // Initialize client-side navigation when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeClientSideNavigation);
+        } else {
+            initializeClientSideNavigation();
         }
     </script>
 </body>

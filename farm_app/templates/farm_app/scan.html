@@ -375,10 +375,30 @@
         stopScanning();
     });
     
-    // Allow Enter key to trigger lookup
-    document.getElementById('tree-id-input').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            lookupTree();
+    // Initialize scan page
+    function initializeScanPage() {
+        // Allow Enter key to trigger lookup
+        const treeInput = document.getElementById('tree-id-input');
+        if (treeInput) {
+            // Remove existing listeners
+            const newInput = treeInput.cloneNode(true);
+            treeInput.parentNode.replaceChild(newInput, treeInput);
+            
+            newInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    lookupTree();
+                }
+            });
+        }
+    }
+    
+    // Initialize on page load
+    initializeScanPage();
+    
+    // Re-initialize when page is loaded via client-side navigation
+    window.addEventListener('pageLoaded', function(e) {
+        if (e.detail.url === '/scan/') {
+            initializeScanPage();
         }
     });
 </script>
